@@ -1,0 +1,40 @@
+{
+  "appId": "com.sawaari.app",
+  "appName": "Sawaari",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "loggingBehavior": "none",
+  "server": {
+    "androidScheme": "http",
+    "iosScheme": "https",
+    "allowNavigation": ["localhost", "127.0.0.1"]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false,
+    "backgroundColor": "#0f172a"
+  },
+  "plugins": {
+    "CapacitorSplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#0f172a",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": false
+    },
+    "Geolocation": {
+      "permissions": ["location"]
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "StatusBar": {
+      "overlaysWebView": false,
+      "style": "DARK",
+      "backgroundColor": "#0f172a"
+    }
+  }
+}

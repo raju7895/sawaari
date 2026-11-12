@@ -1,0 +1,73 @@
+{
+  "name": "sawaari-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sawaari — auto-rickshaw booking desktop app",
+  "main": "main.js",
+  "author": "Sawaari",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "icon": "node build-icon.cjs",
+    "dist": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.sawaari.desktop",
+    "productName": "Sawaari",
+    "copyright": "Sawaari",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,test,__tests__,tests,powered-test,example,examples}"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Sawaari"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "compression": "maximum",
+    "npmRebuild": false
+  },
+  "allowScripts": {
+    "electron@31.7.7": true
+  }
+}

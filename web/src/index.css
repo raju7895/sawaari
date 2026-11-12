@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+.dark:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 0.5) transparent;
+}
+
+/* ── Leaflet map fixes (dark mode tiles are handled by URL; container styles) ── */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #e2e8f0;
+  font-family: inherit;
+  z-index: 0;
+}
+.dark .leaflet-container {
+  background: #0f172a;
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+}
+.dark .leaflet-popup-content-wrapper, .dark .leaflet-popup-tip {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+/* custom divicon markers */
+.sw-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.35);
+  border: 2px solid white;
+  font-size: 15px;
+  width: 34px;
+  height: 34px;
+  background: #fff;
+}
+.sw-marker.driver {
+  background: #0d9488;
+}
+.sw-marker.driver.busy {
+  background: #f59e0b;
+}
+.sw-marker.passenger {
+  background: #2563eb;
+}
+.sw-marker.from {
+  background: #10b981;
+}
+.sw-marker.to {
+  background: #ef4444;
+}
+.sw-marker.pulse::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 2px solid #0d9488;
+  animation: markerPulse 1.6s ease-out infinite;
+}
+@keyframes markerPulse {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+/* ── shared component classes ── */
+.card {
+  @apply rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900;
+}
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-50;
+}
+.btn-primary {
+  @apply btn bg-brand-600 text-white hover:bg-brand-700 active:scale-[0.98];
+}
+.btn-secondary {
+  @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800;
+}
+.btn-danger {
+  @apply btn bg-red-600 text-white hover:bg-red-700;
+}
+.btn-ghost {
+  @apply btn text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800;
+}
+.input {
+  @apply w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100;
+}
+.label {
+  @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400;
+}
+.badge {
+  @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+}
+.link {
+  @apply text-brand-600 hover:text-brand-700 hover:underline dark:text-brand-400 dark:hover:text-brand-300;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

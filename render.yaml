@@ -1,0 +1,81 @@
+# Render blueprint — one Postgres, one API service, one static site.
+#
+# 1. Push this repo to GitHub
+# 2. New → Blueprint → select the repo → apply
+# 3. Add the environment variables listed below (secrets stay out of git)
+#
+# Required environment variables for the API service:
+#   DATABASE_URL          (Render provides it)
+#   JWT_SECRET            openssl rand -hex 32
+#   OTP_PEPPER            openssl rand -hex 24
+#   ADMIN_TOTP_ENCRYPTION_KEY
+#   SUPER_ADMIN_PASSWORD  (your deployment secret)
+#   SUPER_ADMIN_EMAIL
+#   APP_URL               https://<your-web-site>
+#   NODE_ENV              production
+
+databases:
+  - name: sawaari-db
+    databaseName: sawaari
+    user: sawaari
+    plan: basic-256mb
+
+services:
+  - type: web
+    name: sawaari-api
+    runtime: node
+    plan: starter
+    rootDir: server
+    buildCommand: npm ci && npm run migrate && npm run seed
+    startCommand: node src/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: OTP_PEPPER
+        generateValue: true
+      - key: ADMIN_TOTP_ENCRYPTION_KEY
+        generateValue: true
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: SMS_PROVIDER
+        value: none
+      - key: SMS_DEV_MODE
+        value: "false"
+
+  - type: web
+    name: sawaari-web
+    runtime: static
+    staticPublishPath: ./web/dist
+    buildCommand: cd web && npm ci && VITE_API_URL=https://sawaari-api.onrender.com npm run build
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer

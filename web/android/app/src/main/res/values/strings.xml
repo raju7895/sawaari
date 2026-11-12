@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sawaari</string>
+    <string name="title_activity_main">Sawaari</string>
+    <string name="package_name">com.sawaari.app</string>
+    <string name="custom_url_scheme">com.sawaari.app</string>
+</resources>
