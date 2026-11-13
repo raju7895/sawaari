@@ -5,7 +5,7 @@
 const config = require('../config');
 const { httpError, TTLCache } = require('../utils');
 
-const UA = 'Sawaari/1.0 (auto-booking platform; contact: admin@sawaari.local)';
+const UA = `Sawaari/1.0 (auto-booking platform; contact: ${config.admin.superAdmin.email || 'owner@example.com'})`;
 const geocodeCache = new TTLCache(10 * 60000, 1000);
 const routeCache = new TTLCache(5 * 60000, 1000);
 

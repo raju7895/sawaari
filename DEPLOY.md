@@ -31,6 +31,15 @@ booked on one shows up in the admin console on the others.
 4. The build command runs `npm run migrate && npm run seed`, so the schema and the
    cities/pricing are created automatically.
 
+   If you set the fields by hand instead of using the blueprint, use these exact
+   values — the `--include=dev` flag is **required** (Render sets
+   `NODE_ENV=production`, and a plain `npm ci` then drops the build tools):
+
+   | Service | Root directory | Build command | Start / publish |
+   |---|---|---|---|
+   | API | `server` | `npm ci --include=dev && npm run migrate && npm run seed && npm run seed:superadmin` | start `node src/index.js` |
+   | Static site | `web` | `npm ci --include=dev && npm run build` | publish `./dist` |
+
 ### Fly.io
 
 ```bash

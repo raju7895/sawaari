@@ -62,6 +62,14 @@ Render's **Environment** tab → *Add from .env* or add one by one:
 > **`SUPER_ADMIN_PASSWORD` must be set.** Without it the first deploy generates a random
 > password that disappears with the container's filesystem on the next deploy.
 
+> **The API refuses to start with weak secrets.** `server/src/config.js` throws on boot
+> when `NODE_ENV=production` and `JWT_SECRET` is missing, shorter than 32 characters, or
+> still the published development default (same for `OTP_PEPPER`, 16 characters). That
+> is deliberate: those defaults are visible in the public repository, so anybody could
+> sign their own admin token. If the deploy log says *"Refusing to start in
+> production"*, set the two variables and redeploy. `render.yaml` generates both with
+> `generateValue: true`, so the blueprint path is safe by default.
+
 ---
 
 ## 3. Web app — Render → New → Static Site → connect the repo

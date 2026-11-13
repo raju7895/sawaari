@@ -70,6 +70,38 @@ for (const rel of files) {
   }
 }
 
+/* ── 1b. repeated-content corruption ───────────────────────────
+   A mistaken String.replace() once turned README.md into a single
+   table row repeated 460 times (1.8 MB, one 43,000-character
+   line). In this tree the longest legitimate line is under 400
+   characters, so a text file with a multi-thousand-character line
+   is that bug, not real content.                                   */
+const LONG_LINE_LIMIT = 2000;
+for (const rel of files) {
+  if (!isText(rel)) continue;
+  const content = read(rel);
+  if (!content) continue;
+  const size = Buffer.byteLength(content);
+  const lines = content.split('\n');
+  const longest = lines.reduce((m, l) => Math.max(m, l.length), 0);
+  if (longest > LONG_LINE_LIMIT && size > 50_000) {
+    note('confirmed', 'corrupted',
+      `one line is ${longest} characters long (${size} bytes in total) — ` +
+      `a text replacement went wrong; restore the file from the original source`,
+      rel);
+    continue;
+  }
+  const long = lines.filter((l) => l.trim().length > 20);
+  if (long.length < 50) continue;
+  const distinct = new Set(long).size;
+  if (distinct <= 3 && size > 50_000) {
+    note('confirmed', 'corrupted',
+      `${size} bytes made of ${long.length} repeated lines (${distinct} distinct) — ` +
+      `a text replacement went wrong; restore the file from the original source`,
+      rel);
+  }
+}
+
 /* ── 2. merge conflict markers ───────────────────────────────
    A real conflict starts a line with seven angle brackets
    followed by a space and a branch name.                     */

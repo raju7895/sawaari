@@ -3,8 +3,12 @@
 All three clients (Android, Windows, PWA) talk to **one API and one database** running on your PC.
 
 ```
-Phone / PC app  ──►  http://10.222.195.198:4000  ──►  Express API  ──►  PostgreSQL
+Phone / PC app  ──►  http://10.37.125.198:4000  ──►  Express API  ──►  PostgreSQL
 ```
+
+> The address above is this PC's current Wi-Fi address. It can change when the
+> router hands out a new one — run `ipconfig` to see the current IPv4, or just
+> look at the address that `start-sawaari.ps1` prints when it starts.
 
 ---
 
@@ -33,7 +37,7 @@ opened it from (Files / Chrome / Drive) → tap **Install**.
 Open **Sawaari** → on the sign-in screen tap **Server settings** (bottom of the screen) →
 
 ```
-http://10.222.195.198:4000
+http://10.37.125.198:4000
 ```
 
 → **Test connection** → **Save & reload**.

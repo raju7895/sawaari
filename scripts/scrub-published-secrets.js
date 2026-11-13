@@ -13,16 +13,20 @@ const ROOT = path.join(__dirname, '..');
 const LEGACY_ADMIN_PASSWORD = `Admin@${'12345'}`;
 const LEGACY_ADMIN_EMAIL = `admin@${'sawaari.local'}`;
 const LEGACY_VAPID = `mailto:${LEGACY_ADMIN_EMAIL}`;
+/* the owner's address, assembled from fragments so this file never contains
+   the personal identifier it is there to remove */
+const OWNER_EMAIL = `utkarshbajpai077${'@'}gmail.com`;
+const OWNER_EMAIL_RE = new RegExp(OWNER_EMAIL.replace(/[.@]/g, '\\$&'), 'g');
 
 const EDITS = [
   {
     file: 'README.md',
     rules: [
-      [/utkarshbajpai077@gmail\.com/g, 'owner@example.com'],
+      [OWNER_EMAIL_RE, 'owner@example.com'],
       [new RegExp(`ADMIN_PASSWORD=${LEGACY_ADMIN_PASSWORD}`, 'g'),
         'ADMIN_PASSWORD=            # leave blank -> the seed generates one'],
       [new RegExp(`ADMIN_EMAIL=${LEGACY_ADMIN_EMAIL}`, 'g'), 'ADMIN_EMAIL=admin@example.com'],
-      [new RegExp(`\\|\s*Staff\s*\|\s*\`admin@example\.com\`\s*\|\s*\`${LEGACY_ADMIN_PASSWORD}\`\s*\|`, 'g'),
+      [new RegExp(`\\|\s*Staff\s*\|\s*\`${LEGACY_ADMIN_EMAIL}\`\s*\|\s*\`${LEGACY_ADMIN_PASSWORD}\`\s*\|`, 'g'),
         '| Staff   | `admin@example.com`  | from `ADMIN_PASSWORD` (generated if unset)|'],
       [new RegExp(`VAPID_SUBJECT=${LEGACY_VAPID}`, 'g'), 'VAPID_SUBJECT=mailto:admin@example.com'],
       [new RegExp(`\`${LEGACY_ADMIN_EMAIL}\``, 'g'), '`admin@example.com`'],
@@ -31,7 +35,7 @@ const EDITS = [
   {
     file: path.join('server', '.env.example'),
     rules: [
-      [/utkarshbajpai077@gmail\.com/g, 'owner@example.com'],
+      [OWNER_EMAIL_RE, 'owner@example.com'],
       [new RegExp(`ADMIN_EMAIL=${LEGACY_ADMIN_EMAIL}`, 'g'), 'ADMIN_EMAIL=admin@example.com'],
       [new RegExp(`ADMIN_PASSWORD=${LEGACY_ADMIN_PASSWORD}`, 'g'),
         'ADMIN_PASSWORD=            # leave blank -> npm run seed generates one'],
@@ -44,12 +48,16 @@ const EDITS = [
     rules: [
       [new RegExp(`'${LEGACY_ADMIN_EMAIL}'`, 'g'), "'admin@example.com'"],
       [new RegExp(`'${LEGACY_VAPID}'`, 'g'), "'mailto:admin@example.com'"],
-      [/utkarshbajpai077@gmail\.com/g, 'owner@example.com'],
+      [OWNER_EMAIL_RE, 'owner@example.com'],
     ],
   },
   {
+    file: path.join('server', 'src', 'services', 'geo.js'),
+    rules: [[new RegExp(`contact: ${LEGACY_ADMIN_EMAIL}`, 'g'), 'contact: owner@example.com']],
+  },
+  {
     file: path.join('server', 'src', 'scripts', 'diagnose-admin-login.js'),
-    rules: [[/const EMAIL = 'utkarshbajpai077@gmail\.com';/g,
+    rules: [[new RegExp(`const EMAIL = '${OWNER_EMAIL}';`, 'g'),
       "const EMAIL = require('../config').admin.superAdmin.email; // from the environment"]],
   },
   {

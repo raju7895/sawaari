@@ -35,13 +35,19 @@ const step = (m) => console.log(`\n▶ ${m}`);
 const ok = (m) => console.log(`  ✔ ${m}`);
 
 function run(cmd, cmdArgs, opts = {}) {
+  /* Node refuses to spawn .cmd / .bat files without a shell (CVE-2024-27980
+     hardening), so Windows helpers are started through the shell and every
+     argument that contains a space is quoted. */
+  const isWinScript = /\.(cmd|bat)$/i.test(cmd);
+  const quote = (a) => (/[\s&|<>^"]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : String(a));
   const r = spawnSync(cmd, cmdArgs, {
     cwd: opts.cwd || ROOT,
     env: { ...process.env, ...(opts.env || {}) },
     stdio: opts.quiet ? 'pipe' : 'inherit',
     encoding: 'utf8',
-    shell: false,
+    shell: isWinScript,
   });
+  if (r.error) throw new Error(`${cmd} ${cmdArgs.join(' ')} could not start: ${r.error.message}`);
   if (r.status !== 0 && !opts.allowFail) {
     if (opts.quiet) console.log((r.stdout || '') + (r.stderr || ''));
     throw new Error(`${cmd} ${cmdArgs.join(' ')} exited with ${r.status}`);
@@ -93,6 +99,20 @@ function main() {
       run('npm.cmd', ['install'], { cwd: ELECTRON });
     }
     run('node', [path.join(ELECTRON, 'build-icon.cjs')]);
+
+    /* A running copy of the unpacked build locks its files, and
+       electron-builder then fails with "Access is denied". */
+    const unpacked = path.join(ELECTRON, 'dist', 'win-unpacked');
+    if (fs.existsSync(unpacked)) {
+      try {
+        fs.rmSync(unpacked, { recursive: true, force: true });
+        ok('removed the previous win-unpacked folder');
+      } catch {
+        console.log('  ! win-unpacked is locked — close any running Sawaari window and retry');
+        throw new Error('electron\\dist\\win-unpacked is locked by a running Sawaari.exe');
+      }
+    }
+
     const env = { CSC_IDENTITY_AUTO_DISCOVERY: 'false' };
     run('npx.cmd', ['electron-builder', '--win', '--x64', '--dir'], { cwd: ELECTRON, env });
     ok('Electron app packaged');
@@ -105,8 +125,9 @@ function main() {
       console.log('  ! makensis not found — skipping the NSIS installers');
     } else {
       fs.mkdirSync(OUT_WIN, { recursive: true });
-      run('cmd.exe', ['/c', `"${makensis}" /V3 installer.nsi`], { cwd: ELECTRON });
-      run('cmd.exe', ['/c', `"${makensis}" /V3 portable.nsi`], { cwd: ELECTRON });
+      /* makensis.exe is a plain executable — run it directly, no shell quoting */
+      run(makensis, ['/V3', 'installer.nsi'], { cwd: ELECTRON });
+      run(makensis, ['/V3', 'portable.nsi'], { cwd: ELECTRON });
       for (const f of fs.readdirSync(OUT_WIN)) {
         ok(`${f} (${(fs.statSync(path.join(OUT_WIN, f)).size / 1024 / 1024).toFixed(1)} MB)`);
       }
