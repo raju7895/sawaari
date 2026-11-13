@@ -99,7 +99,7 @@ The restore script:
   does not start with a heading, or that has fewer than five headings.
 
 The restored README also had the staff credentials scrubbed out
-(`Admin@12345`, `admin@sawaari.local` → placeholders) — those had survived
+(`Admin@…`, `admin@sawaari.local` → placeholders) — those had survived
 because the file was corrupted before the scrub script could reach it.
 
 ### B2. The three "unresolved import" hits — **false positives, resolved**
@@ -262,7 +262,7 @@ against the full suite before shipping.
 
    | Variable | Value |
    |---|---|
-   | `SUPER_ADMIN_EMAIL` | `utkarshbajpai077@gmail.com` |
+   | `SUPER_ADMIN_EMAIL` | your Gmail address (the one you want to sign in with) |
    | `SUPER_ADMIN_PASSWORD` | your deployment secret — **no spaces, no `#`, no quotes** |
    | `APP_URL` | `https://<the static site>.onrender.com` |
    | `RAZORPAY_KEY_ID` / `_SECRET` / `_WEBHOOK_SECRET` | optional — UPI QR and cash work without them |
@@ -327,7 +327,7 @@ the Render checklist above:
 
 - [ ] `JWT_SECRET`, `OTP_PEPPER`, `ADMIN_TOTP_ENCRYPTION_KEY` are set and unique
 - [ ] `SUPER_ADMIN_PASSWORD` is set (no `#`, no quote, no space)
-- [ ] `SUPER_ADMIN_EMAIL` is `utkarshbajpai077@gmail.com`
+- [ ] `SUPER_ADMIN_EMAIL` is the Gmail address you want to sign in with
 - [ ] `SMS_DEV_MODE=false` in production
 - [ ] `APP_URL` matches the live web address
 - [ ] the static-site rewrite `/* → /index.html` is in place (deep links 404 without it)
@@ -343,7 +343,7 @@ the Render checklist above:
 | Render free tier sleeps | first request after idle takes ~30 s | use the Starter plan |
 | Free Postgres is wiped every 30 days | data loss | paid plan |
 | The Windows binaries are unsigned | Smart App Control / WDAC blocks them | sign them, or use the PWA |
-| The owner's e-mail address **and the legacy staff password `Admin@12345`** are in the **git history** (commit `4be8452` — the first upload, and the scrub script's pattern in `19afeae`…`a01ad25`). The working tree is clean | personal data and a published password in the repository history | rotate the staff password, then rewrite the history (`git filter-repo` + force-push) or make the repository private |
+| The owner's e-mail address **and the legacy staff password (`Admin@…`)** are in the **git history** (commit `4be8452` — the first upload, and the scrub script's pattern in `19afeae`…`a01ad25`). The working tree is clean | personal data and a published password in the repository history | rotate the staff password, then rewrite the history (`git filter-repo` + force-push) or make the repository private |
 | `tar` / `react-router-dom` advisories | build-time / mitigated in code | see D3 and D4 |
 
 ---
