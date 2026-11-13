@@ -73,3 +73,18 @@ export const timeAgo = (iso) => {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 };
+
+/* Only in-app routes may be opened from data that comes out of the
+   database (notification links, banners…). Anything that could be
+   read as an absolute or protocol-relative URL is rejected, which
+   closes the open-redirect pattern a backslash can smuggle in
+   ("/\\evil.example" and "//evil.example" both point off-site). */
+export const safeInternalPath = (value) => {
+  if (typeof value !== 'string') return null;
+  const path = value.trim();
+  if (!path.startsWith('/')) return null;
+  if (path.startsWith('//') || path.startsWith('/\\')) return null;
+  if (/^\/+[\\/]/.test(path)) return null;
+  if (/[\r\n]/.test(path)) return null;
+  return path;
+};

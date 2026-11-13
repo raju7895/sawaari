@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { LogoMark } from '../../components/DashboardLayout';
 import ServerSettings from '../../components/ServerSettings';
+import { safeInternalPath } from '../../api';
 
 export default function Login() {
   const [form, setForm] = useState({ identifier: '', password: '' });
@@ -22,7 +23,7 @@ export default function Login() {
     try {
       const user = await login(form.identifier.trim(), form.password);
       toast(`Welcome back, ${user.name.split(' ')[0]}!`, 'success');
-      const from = location.state?.from;
+      const from = safeInternalPath(location.state?.from);
       const ADMIN_ROLES = ['super_admin', 'admin', 'finance_admin', 'support_admin', 'driver_manager', 'moderator'];
       navigate(from || (ADMIN_ROLES.includes(user.role) ? '/admin' : user.role === 'driver' ? '/driver' : '/app'));
     } catch (err) {

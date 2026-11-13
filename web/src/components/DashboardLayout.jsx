@@ -9,7 +9,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useSocket } from '../context/SocketContext';
-import { api, timeAgo } from '../api';
+import { api, timeAgo, safeInternalPath } from '../api';
 import Avatar from './Avatar';
 
 const NAV = {
@@ -115,7 +115,11 @@ function NotificationBell() {
           {items.map((n) => (
             <button
               key={n.id}
-              onClick={() => { setOpen(false); if (n.data?.url) navigate(n.data.url); }}
+              onClick={() => {
+                setOpen(false);
+                const target = safeInternalPath(n.data?.url);
+                if (target) navigate(target);
+              }}
               className="w-full rounded-xl p-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
             >
               <p className="text-sm font-semibold">{n.title}</p>

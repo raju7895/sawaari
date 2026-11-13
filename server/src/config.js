@@ -94,4 +94,28 @@ config.smtp.enabled = Boolean(config.smtp.host && config.smtp.user);
 config.vapid.enabled = Boolean(config.vapid.publicKey && config.vapid.privateKey);
 config.sms.configured = config.sms.provider !== 'none';
 
+/* ── production safety guard ───────────────────────────────────
+   The development defaults above are published in a public GitHub
+   repository. Starting production with them would let anybody sign
+   their own admin token or read the stored TOTP secrets, so the
+   process refuses to boot instead. Render generates these two
+   values for you (render.yaml → generateValue: true).
+     openssl rand -hex 32   → JWT_SECRET
+     openssl rand -hex 24   → OTP_PEPPER                                    */
+if (config.env === 'production') {
+  const WEAK = [
+    ['JWT_SECRET', config.jwtSecret, 'dev-jwt-secret-change-me', 32],
+    ['OTP_PEPPER', config.otpPepper, 'dev-otp-pepper-change-me', 16],
+  ];
+  for (const [key, value, devDefault, minLength] of WEAK) {
+    if (!value || value === devDefault || value.length < minLength) {
+      throw new Error(
+        `Refusing to start in production: ${key} is missing, still the published ` +
+        `development default, or shorter than ${minLength} characters. ` +
+        `Set it in the environment (openssl rand -hex 32).`
+      );
+    }
+  }
+}
+
 module.exports = config;
