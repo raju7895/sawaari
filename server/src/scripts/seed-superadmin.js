@@ -76,9 +76,10 @@ async function main() {
   /* ── 2. Create or repair the owner ──────────────────────────
      The ENVIRONMENT is the source of truth for the password:
        • SUPER_ADMIN_PASSWORD set  → always applied (re-synced) to the account
-       • not set, account exists  → keep the current password; it lives in
-         backups/superadmin-credentials.txt. If that file is gone the
-         password is unrecoverable, so a fresh one is generated and saved.
+       • not set, account exists  → the current password is kept. It is never
+         rotated automatically: on a host with an ephemeral filesystem (Render,
+         Fly, containers) a generated password would be lost on every
+         redeploy. Set SUPER_ADMIN_PASSWORD, or use `npm run admin:password`.
        • not set, no account       → generate a strong password and save it. */
   let password = config.admin.superAdmin.password;
   let generatedPassword = false;
@@ -106,16 +107,17 @@ async function main() {
     }
   } else if (existing && credsExist) {
     console.log(`✔ owner password unchanged — read it from ${SECRETS_FILE}`);
+  } else if (existing) {
+    /* No password configured and none recoverable — KEEP the current one.
+       Rotating here would silently change the password on every deploy on a
+       host with an ephemeral filesystem (Render/Fly/Docker). */
+    console.log(`✔ owner password kept (no SUPER_ADMIN_PASSWORD set)`);
+    console.warn('  ! Set SUPER_ADMIN_PASSWORD as an environment variable so the owner');
+    console.warn('    password is defined by your deployment, not by this machine.');
   } else {
-    // no password configured and none recoverable → generate one
+    // no account yet and no password configured → generate the first one
     password = strongPassword();
     generatedPassword = true;
-    if (existing) {
-      const hash = await bcrypt.hash(password, 12);
-      await query(`UPDATE users SET password_hash=$2, updated_at=now() WHERE id=$1`, [existing.id, hash]);
-      await query(`UPDATE admin_profiles SET failed_attempts=0, locked_until=NULL, updated_at=now() WHERE user_id=$1`, [existing.id]);
-      console.log(`✔ owner password rotated (the previous one was unrecoverable)`);
-    }
   }
 
   let totpSecret = cryptoSvc.generateTotpSecret();
