@@ -5,7 +5,7 @@ WORKDIR /app
 
 # dependencies first (better layer caching)
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --include=dev && npm cache clean --force
 
 # source
 COPY src ./src

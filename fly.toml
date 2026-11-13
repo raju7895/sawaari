@@ -12,7 +12,8 @@ app = "sawaari-api"
 primary_region = "bom"          # Mumbai
 build = """
   cd server
-  npm ci --omit=dev
+  npm ci --include=dev
+  npm run migrate
 """
 
 [env]

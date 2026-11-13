@@ -26,7 +26,9 @@ services:
     runtime: node
     plan: starter
     rootDir: server
-    buildCommand: npm ci && npm run migrate && npm run seed
+    # --include=dev is required: Render sets NODE_ENV=production, which makes
+    # npm ci skip devDependencies. Keep it so the build never loses a tool.
+    buildCommand: npm ci --include=dev && npm run migrate && npm run seed && npm run seed:superadmin
     startCommand: node src/index.js
     healthCheckPath: /api/health
     envVars:
@@ -61,7 +63,9 @@ services:
     name: sawaari-web
     runtime: static
     staticPublishPath: ./web/dist
-    buildCommand: cd web && npm ci && VITE_API_URL=https://sawaari-api.onrender.com npm run build
+    # vite/tailwind are devDependencies — without --include=dev this build
+    # fails with "vite is not recognized"
+    buildCommand: cd web && npm ci --include=dev && VITE_API_URL=https://sawaari-api.onrender.com npm run build
     routes:
       - type: rewrite
         source: /*

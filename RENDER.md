@@ -25,11 +25,16 @@ Render injects `DATABASE_URL` into every service you link to this database — n
 | Field | Value |
 |---|---|
 | **Root Directory** | `server` |
-| **Build Command** | `npm ci && npm run migrate && npm run seed && npm run seed:superadmin` |
+| **Build Command** | `npm ci --include=dev && npm run migrate && npm run seed && npm run seed:superadmin` |
 | **Start Command** | `node src/index.js` |
 | **Health Check Path** | `/api/health` |
 | Instance type | Starter ($7/mo) — the free tier sleeps and has strict limits |
 | Node version | `20` (add env var `NODE_VERSION=20`) |
+
+> **`--include=dev` is not optional.** Render sets `NODE_ENV=production`, which makes
+> `npm ci` skip devDependencies. The API service has none, so the flag is a no-op
+> there — but it makes the build immune to that behaviour. The static site *does*
+> need it (vite is a devDependency) — see below.
 
 ### Environment variables for the API
 
@@ -64,9 +69,22 @@ Render's **Environment** tab → *Add from .env* or add one by one:
 | Field | Value |
 |---|---|
 | **Root Directory** | `web` |
-| **Build Command** | `npm ci && npm run build` |
+| **Build Command** | `npm ci --include=dev && npm run build` |
 | **Publish Directory** | `./dist` |
 | **Rewrite rule** | `/*` → `/index.html` (in *Redirects & Rewrites*) |
+
+> **This is where the deployment usually fails.** `vite`, `tailwindcss`, `postcss` and
+> `autoprefixer` are **devDependencies**. Render sets `NODE_ENV=production`, so a
+> plain `npm ci` installs only production dependencies and the build dies with:
+>
+> ```
+> > vite build
+> 'vite' is not recognized as an internal or external command,
+> operable program or batch file.
+> ```
+>
+> `npm ci --include=dev` installs the build tooling regardless of `NODE_ENV`.
+> (Verified: with the flag the build finishes in ~24 s, exit code 0.)
 
 ### Environment variables for the static site
 

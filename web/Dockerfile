@@ -4,7 +4,9 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# vite/tailwind are devDependencies — always install them for the build,
+# even when NODE_ENV=production is set in the environment
+RUN npm ci --include=dev
 
 COPY . .
 
