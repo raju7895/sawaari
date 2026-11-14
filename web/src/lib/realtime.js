@@ -1,97 +1,56 @@
-/* Supabase Realtime helpers — the replacement for the socket.io rooms.
+/* Supabase Realtime — the live ride board.
  *
- * The old server pushed:
- *   ride:status, ride:assigned, ride:cancelled, ride:driver-location,
- *   chat:message, notification:new
- * over socket.io. Supabase Realtime gives the same thing from the database:
- *
- *   • postgres_changes on `bookings`      → ride:status / ride:assigned / cancelled
- *   • postgres_changes on `driver_locations` → ride:driver-location
- *   • postgres_changes on `booking_messages` → chat:message
- *   • postgres_changes on `notifications`  → notification:new
- *
- * Every subscription is unsubscribed when the page unmounts, so the
- * channel is closed when the rider leaves the ride screen.
+ * The rides table is in the `supabase_realtime` publication, so a simple
+ * postgres_changes subscription pushes every status change to the rider, the
+ * driver and the admin board.
  */
 import { supabase } from './supabase';
 
-const asChannel = (name) => `ride:${name}`;
-
 /** Live updates for one ride. Returns an unsubscribe function. */
-export function subscribeToRide(bookingId, handlers = {}) {
+export function subscribeToRide(rideId, handlers = {}) {
   const channel = supabase
-    .channel(asChannel(bookingId))
+    .channel(`ride:${rideId}`)
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
-      table: 'bookings',
-      filter: `id=eq.${bookingId}`,
+      table: 'rides',
+      filter: `id=eq.${rideId}`,
     }, (payload) => {
-      const booking = payload.new || payload.old;
-      if (!booking) return;
-      if (booking.status === 'cancelled') handlers.onCancelled?.(booking);
-      else if (booking.driver_profile_id && !booking.assigned_at) handlers.onAssigned?.(booking);
-      else handlers.onStatus?.(booking);
-    })
-    .on('postgres_changes', {
-      event: '*',
-      schema: 'public',
-      table: 'booking_messages',
-      filter: `booking_id=eq.${bookingId}`,
-    }, (payload) => handlers.onMessage?.(payload.new))
-    .on('postgres_changes', {
-      event: '*',
-      schema: 'public',
-      table: 'driver_locations',
-    }, (payload) => {
-      // only the driver of this ride moves
-      if (!handlers.onDriverLocation) return;
-      handlers.onDriverLocation(payload.new);
+      const ride = payload.new || payload.old;
+      if (!ride) return;
+      if (ride.status === 'cancelled') handlers.onCancelled?.(ride);
+      else if (ride.status === 'accepted') handlers.onAccepted?.(ride);
+      else handlers.onChange?.(ride);
     });
 
   channel.subscribe();
   return () => { supabase.removeChannel(channel); };
 }
 
-/** The signed-in user's notifications. */
-export function subscribeToNotifications(userId, onNew) {
+/** Every open request (the driver's live list). */
+export function subscribeToOpenRides(onNew) {
   const channel = supabase
-    .channel(`notifications:${userId}`)
+    .channel('open-rides')
     .on('postgres_changes', {
-      event: 'INSERT',
+      event: '*',
       schema: 'public',
-      table: 'notifications',
-      filter: `user_id=eq.${userId}`,
+      table: 'rides',
+      filter: 'status=eq.requested',
     }, (payload) => onNew(payload.new));
 
   channel.subscribe();
   return () => { supabase.removeChannel(channel); };
 }
 
-/** Live positions of every driver on the map. */
-export function subscribeToDriverLocations(onLocation) {
+/** The admin live board: every ride, any status. */
+export function subscribeToAllRides(onChange) {
   const channel = supabase
-    .channel('driver-locations')
+    .channel('all-rides')
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
-      table: 'driver_locations',
-    }, (payload) => onLocation(payload.new));
-
-  channel.subscribe();
-  return () => { supabase.removeChannel(channel); };
-}
-
-/** New ride requests for a driver who is online. */
-export function subscribeToRideRequests(onRequest) {
-  const channel = supabase
-    .channel('ride-requests')
-    .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'bookings',
-      filter: 'status=eq.searching',
-    }, (payload) => onRequest(payload.new));
+      table: 'rides',
+    }, (payload) => onChange(payload.new));
 
   channel.subscribe();
   return () => { supabase.removeChannel(channel); };

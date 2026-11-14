@@ -1,26 +1,22 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { ThemeProvider } from './context/ThemeContext';
-import { AuthProvider } from './context/AuthContext';
-import { SocketProvider } from './context/SocketContext';
 import { ToastProvider } from './context/ToastContext';
+import ErrorBoundary from './components/ErrorBoundary';
+import BackButtonHandler from './components/BackButtonHandler';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <ErrorBoundary>
       <ThemeProvider>
-        <AuthProvider>
-          <SocketProvider>
-            <ToastProvider>
-              <App />
-            </ToastProvider>
-          </SocketProvider>
-        </AuthProvider>
+        <ToastProvider>
+          <BackButtonHandler />
+          <App />
+        </ToastProvider>
       </ThemeProvider>
-    </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>
 );
 

@@ -1,184 +1,123 @@
-# Deploying on Render — exact field values
+# Deploying Sawaari — Supabase + Render
 
-Three things to create: **Postgres**, the **API** (web service) and the **Web app** (static site).
-
-> The repo already contains `render.yaml`, which does all of this automatically.
-> **Render → New → Blueprint → select `raju7895/sawaari`** is the one-click path.
-> Use the manual steps below if you prefer to configure each piece yourself.
-
----
-
-## 1. Database — Render → New → Postgres
-
-| Field | Value |
-|---|---|
-| Name | `sawaari-db` |
-| Region | Mumbai (or the closest to your riders) |
-| Plan | Basic-256mb (free works for testing but is wiped after 30 days) |
-
-Render injects `DATABASE_URL` into every service you link to this database — nothing to copy.
-
----
-
-## 2. API — Render → New → Web Service → connect the repo
-
-| Field | Value |
-|---|---|
-| **Root Directory** | `server` |
-| **Build Command** | `npm ci --include=dev && npm run migrate && npm run seed && npm run seed:superadmin` |
-| **Start Command** | `node src/index.js` |
-| **Health Check Path** | `/api/health` |
-| Instance type | Starter ($7/mo) — the free tier sleeps and has strict limits |
-| Node version | `20` (add env var `NODE_VERSION=20`) |
-
-> **`--include=dev` is not optional.** Render sets `NODE_ENV=production`, which makes
-> `npm ci` skip devDependencies. The API service has none, so the flag is a no-op
-> there — but it makes the build immune to that behaviour. The static site *does*
-> need it (vite is a devDependency) — see below.
-
-### Environment variables for the API
-
-Render's **Environment** tab → *Add from .env* or add one by one:
-
-| Key | Value | Notes |
-|---|---|---|
-| `NODE_ENV` | `production` | |
-| `NODE_VERSION` | `20` | optional, `engines` in package.json already pins it |
-| `DATABASE_URL` | *(leave empty — Render injects it)* | only if you created the DB by hand |
-| `JWT_SECRET` | **Generate** | Render's "Generate" button |
-| `OTP_PEPPER` | **Generate** | Render's "Generate" button |
-| `ADMIN_TOTP_ENCRYPTION_KEY` | **Generate** | encrypts the 2FA secrets |
-| `SUPER_ADMIN_EMAIL` | your email | owner account |
-| `SUPER_ADMIN_PASSWORD` | your deployment secret | **no spaces, no `#`, no quotes** |
-| `SUPER_ADMIN_NAME` | your name | shown in the console |
-| `APP_URL` | `https://<your-static-site>.onrender.com` | used in share links |
-| `FRONTEND_URL` | `https://<your-static-site>.onrender.com` | **the CORS allowlist** — the browser is only allowed to call the API from this origin. Several addresses can be given, separated by commas. Leave it empty and the API accepts any origin (it says so in the log) |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | staff account | optional, generated if unset |
-| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` | from Razorpay | optional — UPI QR + cash work without it |
-| `SMS_PROVIDER` | `none` \| `msg91` \| `twilio` | optional |
-| `SMS_DEV_MODE` | `false` | **must be false in production** (otherwise OTPs print to the log) |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | your SMTP | optional |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | web-push keys | optional |
-
-> **`SUPER_ADMIN_PASSWORD` must be set.** Without it the first deploy generates a random
-> password that disappears with the container's filesystem on the next deploy.
-
-> **The API refuses to start with weak secrets.** `server/src/config.js` throws on boot
-> when `NODE_ENV=production` and `JWT_SECRET` is missing, shorter than 32 characters, or
-> still the published development default (same for `OTP_PEPPER`, 16 characters). That
-> is deliberate: those defaults are visible in the public repository, so anybody could
-> sign their own admin token. If the deploy log says *"Refusing to start in
-> production"*, set the two variables and redeploy. `render.yaml` generates both with
-> `generateValue: true`, so the blueprint path is safe by default.
-
----
-
-## 3. Web app — Render → New → Static Site → connect the repo
-
-| Field | Value |
-|---|---|
-| **Root Directory** | `web` |
-| **Build Command** | `npm ci --include=dev && npm run build` |
-| **Publish Directory** | `./dist` |
-| **Rewrite rule** | `/*` → `/index.html` (in *Redirects & Rewrites*) |
-
-> **This is where the deployment usually fails.** `vite`, `tailwindcss`, `postcss` and
-> `autoprefixer` are **devDependencies**. Render sets `NODE_ENV=production`, so a
-> plain `npm ci` installs only production dependencies and the build dies with:
->
-> ```
-> > vite build
-> 'vite' is not recognized as an internal or external command,
-> operable program or batch file.
-> ```
->
-> `npm ci --include=dev` installs the build tooling regardless of `NODE_ENV`.
-> (Verified: with the flag the build finishes in ~24 s, exit code 0.)
-
-### Environment variables for the static site
-
-| Key | Value |
-|---|---|
-| `VITE_API_URL` | `https://<your-api-service>.onrender.com` — **the address of the API service, not of this site** |
-
-> `VITE_API_URL` is read **at build time** — Render's build step has the service's
-> environment variables available, so setting it in the Environment tab is enough.
-> Change it → *Save & Deploy* to rebuild.
->
-> **This is the single most important value on this page.** If it is empty or
-> points at the wrong host, every sign-in and sign-up fails with
-> *"Could not reach …"*, because the front end has nowhere to send the request.
-> It is deliberately **not** hardcoded in `render.yaml`: a hardcoded hostname
-> silently breaks the whole front end as soon as the service is renamed.
->
-> The value must be **https://** and must not have a trailing slash.
-
----
-
-## 4. First sign-in
-
-1. Open `https://<your-static-site>.onrender.com/admin-login`.
-2. Enter `SUPER_ADMIN_EMAIL` + `SUPER_ADMIN_PASSWORD`.
-3. Two-factor authentication is mandatory — get the code from the **Render Shell**:
-
-   ```bash
-   cd server && npm run admin:2fa -- --code
-   ```
-
-   It prints the TOTP secret (add it to Google Authenticator / Authy / 1Password),
-   the `otpauth://` URI and a live 6-digit code.
-
-> **Deploy the API first, then the static site.** The static site needs the API's
-> address in `VITE_API_URL` before it is built, and the API needs `FRONTEND_URL`
-> (the static site's address) for the CORS allowlist. Build the API, copy its
-> address into the static site's Environment tab, then build the static site.
-
----
-
-## 5. Point the installed apps at the live API
-
-No rebuild needed — **Server settings** on the home or login screen of the APK,
-the desktop app or the PWA:
+There is **no server process**. Supabase is the whole backend (Auth, Postgres
+with row-level security, Storage, Realtime) and Render serves the static
+bundle.
 
 ```
-https://sawaari-api.onrender.com
+browser ──► static site on Render
+   │
+   ├── Auth        ──► supabase.auth.*        (signUp / signInWithPassword / resetPasswordForEmail)
+   ├── Data        ──► PostgREST  + RLS      (only your own rows)
+   ├── Files       ──► Storage               (avatars public, driver-documents private)
+   └── Live rides  ──► Realtime              (postgres_changes on `rides`)
 ```
 
----
+## 1. Supabase — one migration
 
-## 6. Known platform limits (Render free/starter tier)
+Open **Supabase → SQL Editor → New query**, paste
+`supabase/migrations/20261114000000_sawaari.sql` and run it. It is idempotent:
+running it twice changes nothing.
 
-| Limit | Effect | Fix |
+It creates nine tables (`profiles`, `drivers`, `vehicles`, `rides`, `payments`,
+`ratings`, `saved_places`, `admin_actions`, `app_settings`), the row-level
+security policies, the signup trigger, the two storage buckets, realtime on
+`rides` and the RPCs (`book_ride`, `accept_ride`, `update_ride_status`,
+`quote_ride`, `get_ride_by_share_token`, `admin_*`).
+
+## 2. Supabase — Auth settings
+
+**Authentication → URL Configuration**
+
+| Field | Value |
+|---|---|
+| Site URL | `https://sawaari-web.onrender.com` |
+| Redirect URLs | `http://localhost:5173/**` · `https://sawaari-web.onrender.com/**` |
+
+**Authentication → Providers → Email**
+
+| Setting | Value | Effect |
 |---|---|---|
-| Ephemeral filesystem | uploaded driver documents and avatars are lost on redeploy | attach a disk or S3 for production |
-| Free tier sleeps | first request after idle takes ~30 s | use the Starter plan |
-| Free Postgres | wiped every 30 days | paid plan |
-| 100 free build minutes/month | builds stop after that | upgrade |
+| Enable the email provider | on | sign-up and sign-in work |
+| Confirm email | **off while you are testing** | sign-up returns a session and the rider can sign in at once. **Switch it on for production** — then sign-up shows "check your e-mail" and the account only works after the link is clicked |
+| Leaked password protection | **on** | new passwords are checked against a breach list |
 
----
+## 3. Supabase — the administrator
 
-## 7. Checklist before you invite anyone
+The administrator is an ordinary auth user whose profile row has
+`role = 'admin'`. The database checks it on every request; the screens do not.
 
-- [ ] `JWT_SECRET`, `OTP_PEPPER`, `ADMIN_TOTP_ENCRYPTION_KEY` are set and unique
-- [ ] `SUPER_ADMIN_PASSWORD` is set (and has no `#`, quote or space)
-- [ ] `SMS_DEV_MODE=false`
-- [ ] `NODE_ENV=production`
-- [ ] `APP_URL` matches the live web address
-- [ ] `FRONTEND_URL` on the **API** is the static site's address (CORS)
-- [ ] `VITE_API_URL` on the **static site** is the API's address (https, no trailing slash)
-- [ ] the static site rewrite `/* → /index.html` is in place (otherwise deep links 404)
-- [ ] `npm run admin:2fa` has been run and the secret saved in your authenticator
-- [ ] the database is backed up: `npm run db:backup`
+1. **Authentication → Users → Add user** — e-mail
+   `your-admin-email@example.com`, a password of your choosing, **Auto Confirm
+   User** ticked.
+2. **SQL Editor** — run:
 
----
+```sql
+update public.profiles set role = 'admin'
+ where email = 'your-admin-email@example.com';
+```
 
-## 8. "Could not reach …" — what to check
+3. Sign in at `https://<your-site>/admin/login`. If the profile row does not
+   exist yet, create it first:
 
-| Symptom | Where the cause is | Fix |
-|---|---|---|
-| *"Could not reach https://…"* on sign-in | the front end is calling the wrong address | static site → Environment → `VITE_API_URL` → *Save & Deploy* (a rebuild is required — the value is compiled into the bundle) |
-| the console shows `no-api-url` | `VITE_API_URL` is empty and the site is not the API | same as above |
-| the console shows `mixed-content` | the page is https, the API address is http | use an https:// API address |
-| the console shows `network` and the reply was blocked by CORS | the API does not allow this origin | API → Environment → `FRONTEND_URL` = the static site's address → redeploy the API |
-| the API answers but the health check is red | the database is not attached | link the Postgres to the API service |
-| the front end still loads an old bundle | the service worker cached it | hard-reload once (Ctrl+Shift+R) — the cache version is bumped with every release |
+```sql
+insert into public.profiles (id, role, full_name, email)
+select id, 'admin', 'Platform Owner', email from auth.users
+ where email = 'your-admin-email@example.com'
+on conflict (id) do update set role = 'admin';
+```
+
+## 4. Render — the static site
+
+The repository contains `render.yaml`, a blueprint that does it all.
+
+**Render → New → Blueprint → select `raju7895/sawaari` → Apply**, then fill in:
+
+| Variable | Value |
+|---|---|
+| `VITE_SUPABASE_URL` | `https://vwpxxgmcjrzegnqrpvsv.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | the anon / publishable key (Project Settings → API Keys) |
+
+Nothing else. The service is:
+
+| Setting | Value |
+|---|---|
+| Type | Static Site |
+| Branch | `main` |
+| Root Directory | `web` |
+| Build Command | `npm install --include=dev && npm run build` |
+| Publish Directory | `./dist` |
+| Auto-Deploy | **Yes** |
+| Health Check Path | — |
+| Rewrite rule | `/*` → `/index.html` (the blueprint adds it) |
+
+> **`--include=dev` is not optional.** If `NODE_ENV=production` is set in the
+> environment, `npm install` skips devDependencies and the build dies with
+> *"vite is not recognized"*.
+>
+> **Vite compiles the environment variables into the bundle.** After changing
+> one, use **Clear build cache & deploy** — a cached build keeps the old
+> address.
+
+## 5. After the deploy
+
+1. `https://<your-site>/api/health` — no, there is no API any more. Open the
+   site and sign up.
+2. Check the browser console: no red errors.
+3. `https://<your-site>/admin/login` — sign in as the administrator.
+
+## 6. Keeping it in sync
+
+```bash
+git add -A
+git commit -m "your change"
+git push origin main        # Render rebuilds and redeploys automatically
+```
+
+## 7. Free-tier notes
+
+| Limit | Effect |
+|---|---|
+| Supabase pauses the project after a week of inactivity | the site returns an error until you press **Restore** in the Supabase dashboard |
+| Render's free static sites are always on | no cold start, but no server either |
+| Supabase free tier | 500 MB of database, 1 GB of storage, 5 GB of egress |

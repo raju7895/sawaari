@@ -29,7 +29,8 @@ const OUT_WIN = path.join(ROOT, 'dist-windows');
 const args = process.argv.slice(2);
 const skipAndroid = args.includes('--skip-android');
 const skipWindows = args.includes('--skip-windows');
-const apiUrl = process.env.VITE_API_URL || 'http://localhost:4000';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://vwpxxgmcjrzegnqrpvsv.supabase.co';
+const anonKey = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_DWc8VP6s8ToTLa5f_AxoHg_rtJvN8A6';
 
 const step = (m) => console.log(`\n▶ ${m}`);
 const ok = (m) => console.log(`  ✔ ${m}`);
@@ -61,9 +62,9 @@ function main() {
   fs.mkdirSync(path.join(WEB, 'dist'), { recursive: true });
   run('npm.cmd', ['run', 'build'], {
     cwd: WEB,
-    env: { VITE_API_URL: apiUrl },
+    env: { VITE_SUPABASE_URL: supabaseUrl, VITE_SUPABASE_ANON_KEY: anonKey },
   });
-  ok(`web build → web/dist (API base: ${apiUrl})`);
+  ok(`web build → web/dist (Supabase: ${supabaseUrl})`);
 
   /* ── 2. Android ───────────────────────────────────────────── */
   if (!skipAndroid) {

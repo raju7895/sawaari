@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { MapPin, Navigation, Phone, CarTaxiFront, ShieldCheck, Clock, ArrowLeft } from 'lucide-react';
-import { api, fmtDateTime } from '../api';
+import { supabase } from '../lib/supabase';
 import MapView from '../components/MapView';
 import StatusBadge from '../components/StatusBadge';
-import { LogoMark } from '../components/DashboardLayout';
+import LogoMark from '../components/LogoMark';
+import { fmtDateTime } from '../lib/format';
 
-/** Public “follow my ride” page — minimal data, no login required. */
+/** Public “follow my ride” page — no sign-in, one share token. */
 export default function TrackPublic() {
   const { token } = useParams();
   const [trip, setTrip] = useState(null);
@@ -15,15 +16,14 @@ export default function TrackPublic() {
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      try {
-        const t = await api.get(`/api/bookings/share/${token}`);
-        if (alive) { setTrip(t); setError(''); }
-      } catch (e) {
-        if (alive) setError(e.message);
-      }
+      const { data, error: err } = await supabase.rpc('get_ride_by_share_token', { p_token: token });
+      if (!alive) return;
+      if (err) setError(err.message);
+      else if (!data) setError('That link is not valid any more.');
+      else { setTrip(data); setError(''); }
     };
     load();
-    const timer = setInterval(load, 8000); // live refresh
+    const timer = setInterval(load, 8000);
     return () => { alive = false; clearInterval(timer); };
   }, [token]);
 
@@ -47,16 +47,14 @@ export default function TrackPublic() {
     );
   }
 
-  const active = ['assigned', 'arriving', 'arrived', 'in_progress'].includes(trip.status);
+  const active = ['accepted', 'ongoing'].includes(trip.status);
 
   const markers = [];
   if (trip.pickup?.lat) markers.push({ lat: trip.pickup.lat, lng: trip.pickup.lng, type: 'from' });
   if (trip.drop?.lat) markers.push({ lat: trip.drop.lat, lng: trip.drop.lng, type: 'to' });
-  if (trip.driverLoc && active) markers.push({ lat: trip.driverLoc.lat, lng: trip.driverLoc.lng, type: 'driver' });
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      {/* header */}
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
         <Link to="/" className="flex items-center gap-2">
           <LogoMark size={28} />
@@ -68,18 +66,20 @@ export default function TrackPublic() {
       </header>
 
       <main className="mx-auto max-w-2xl space-y-4 p-4">
-        <div className="card h-64 overflow-hidden sm:h-80">
-          <MapView
-            center={{ lat: trip.pickup?.lat || 12.9716, lng: trip.pickup?.lng || 77.5946, zoom: 13 }}
-            markers={markers}
-            interactive
-          />
-        </div>
+        {trip.pickup?.lat ? (
+          <div className="card h-64 overflow-hidden sm:h-80">
+            <MapView
+              center={{ lat: trip.pickup.lat, lng: trip.pickup.lng, zoom: 13 }}
+              markers={markers}
+              interactive
+            />
+          </div>
+        ) : null}
 
         <div className="card p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <h1 className="text-lg font-extrabold">
-              {trip.driverFirstName ? `${trip.driverFirstName}'s ride` : 'Sawaari ride'} · {trip.ref}
+              {trip.driverName ? `${trip.driverName}'s ride` : 'Sawaari ride'} · {trip.ref}
             </h1>
             <StatusBadge status={trip.status} />
           </div>
@@ -95,29 +95,28 @@ export default function TrackPublic() {
           </div>
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
             <span className="flex items-center gap-1"><Navigation className="h-3.5 w-3.5" /> {trip.distanceKm} km trip</span>
-            {trip.vehicle?.registrationNumber && (
-              <span className="flex items-center gap-1"><CarTaxiFront className="h-3.5 w-3.5" /> {trip.vehicle.registrationNumber}</span>
-            )}
-            {trip.startedAt && <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> started {fmtDateTime(trip.startedAt)}</span>}
-            {trip.completedAt && <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> completed {fmtDateTime(trip.completedAt)}</span>}
+            {trip.vehicleRegistration ? (
+              <span className="flex items-center gap-1"><CarTaxiFront className="h-3.5 w-3.5" /> {trip.vehicleRegistration}</span>
+            ) : null}
+            {trip.createdAt ? <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> booked {fmtDateTime(trip.createdAt)}</span> : null}
+            {trip.completedAt ? <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> completed {fmtDateTime(trip.completedAt)}</span> : null}
           </div>
         </div>
 
-        {active && trip.driverPhone && (
+        {active && trip.driverPhone ? (
           <a href={`tel:${trip.driverPhone}`} className="card flex items-center gap-3 border-brand-200 bg-brand-50 p-4 dark:border-brand-800 dark:bg-brand-900/20">
             <Phone className="h-5 w-5 text-brand-600" />
             <p className="text-sm font-semibold">Need something? Call the driver</p>
           </a>
-        )}
+        ) : null}
 
-        {!active && (
+        {!active ? (
           <div className="card p-4 text-sm text-slate-500">
             {trip.status === 'completed' && '✅ This ride has been completed. Thanks for following along!'}
             {trip.status === 'cancelled' && 'This ride was cancelled.'}
-            {['searching', 'scheduled'].includes(trip.status) && 'The passenger is still waiting for a driver to accept…'}
-            {trip.status === 'expired' && 'No driver accepted this ride.'}
+            {trip.status === 'requested' && 'The passenger is still waiting for a driver to accept…'}
           </div>
-        )}
+        ) : null}
 
         <p className="flex items-center justify-center gap-1.5 pb-4 text-xs text-slate-400">
           <MapPin className="h-3.5 w-3.5" /> Auto-refreshes every few seconds · powered by Sawaari

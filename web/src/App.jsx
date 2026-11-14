@@ -1,146 +1,98 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { useAuth } from './context/AuthContext';
-import DashboardLayout from './components/DashboardLayout';
-import { Loader2 } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AuthProvider, useAuth, homeFor } from './context/AuthContext';
 
 import Landing from './pages/Landing';
+import TrackPublic from './pages/TrackPublic';
 import Login from './pages/auth/Login';
 import Register from './pages/auth/Register';
-import VerifyOtp from './pages/auth/VerifyOtp';
 import ForgotPassword from './pages/auth/ForgotPassword';
-import TrackPublic from './pages/TrackPublic';
 
+import PassengerLayout from './pages/passenger/PassengerLayout';
 import PassengerDashboard from './pages/passenger/Dashboard';
 import BookRide from './pages/passenger/BookRide';
 import RideTracking from './pages/passenger/RideTracking';
 import RideHistory from './pages/passenger/RideHistory';
 import PassengerPayments from './pages/passenger/Payments';
-import SavedLocations from './pages/passenger/Locations';
-import ProfilePage from './pages/common/Profile';
-import SupportPage from './pages/common/Support';
+import SavedPlaces from './pages/passenger/Locations';
+import Profile from './pages/common/Profile';
 
+import DriverLayout from './pages/driver/DriverLayout';
 import DriverDashboard from './pages/driver/Dashboard';
 import DriverRides from './pages/driver/Rides';
 import DriverEarnings from './pages/driver/Earnings';
-import DriverProfilePage from './pages/driver/Profile';
-import DriverReviews from './pages/driver/Reviews';
+import DriverProfile from './pages/driver/Profile';
 
-import AdminOverview from './pages/admin/Overview';
-import AdminDrivers from './pages/admin/Drivers';
-import AdminUsers from './pages/admin/Users';
-import AdminBookings from './pages/admin/Bookings';
-import AdminPayments from './pages/admin/Payments';
-import AdminAnalytics from './pages/admin/Analytics';
-import AdminCities from './pages/admin/Cities';
-import AdminSettings from './pages/admin/Settings';
-import AdminTickets from './pages/admin/Tickets';
-import AdminReports from './pages/admin/Reports';
+import AdminLayout from './pages/admin/AdminLayout';
 import AdminLogin from './pages/admin/AdminLogin';
-import VerifyAdminEmail from './pages/admin/VerifyAdminEmail';
-import ResetAdminPassword from './pages/admin/ResetAdminPassword';
-import AcceptInvite from './pages/admin/AcceptInvite';
-import TwoFactorSetup from './pages/admin/TwoFactorSetup';
-import DriversDirectory from './pages/admin/DriversDirectory';
-import LiveRides from './pages/admin/LiveRides';
-import Revenue from './pages/admin/Revenue';
-import Refunds from './pages/admin/Refunds';
-import AdminManagement from './pages/admin/Admins';
-import Pricing from './pages/admin/Pricing';
-import Notifications from './pages/admin/Notifications';
-import AuditLogs from './pages/admin/AuditLogs';
-import Security from './pages/admin/Security';
-import BackButtonHandler from './components/BackButtonHandler';
+import AdminDashboard from './pages/admin/Overview';
+import AdminUsers from './pages/admin/Users';
+import AdminDrivers from './pages/admin/Drivers';
+import AdminRides from './pages/admin/Bookings';
+import AdminPayments from './pages/admin/Payments';
+import AdminRatings from './pages/admin/Ratings';
+import AdminSettings from './pages/admin/Settings';
+import AdminActivity from './pages/admin/AuditLogs';
 
-const ADMIN_ROLES = ['super_admin', 'admin', 'finance_admin', 'support_admin', 'driver_manager', 'moderator'];
+import { Loading } from './components/ui';
 
-function FullScreenLoader() {
-  return (
-    <div className="flex h-screen items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-brand-600" />
-    </div>
-  );
-}
-
-function Protected({ roles, children }) {
-  const { user, loading } = useAuth();
+/** Guards a branch of the app by role. */
+function Require({ roles, children }) {
+  const { session, profile, loading, role } = useAuth();
   const location = useLocation();
-  if (loading) return <FullScreenLoader />;
-  if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
-  if (roles && !roles.includes(user.role)) {
-    const home = ADMIN_ROLES.includes(user.role)
-      ? '/admin'
-      : user.role === 'driver' ? '/driver' : '/app';
-    return <Navigate to={home} replace />;
-  }
+
+  if (loading) return <Loading label="Checking your session…" />;
+  if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (profile?.is_blocked) return <Navigate to="/login" replace />;
+  if (roles.length && !roles.includes(role)) return <Navigate to={homeFor(role)} replace />;
   return children;
 }
 
 export default function App() {
   return (
-    <>
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/verify-otp" element={<VerifyOtp />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/track/:token" element={<TrackPublic />} />
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/track/:token" element={<TrackPublic />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
 
-      {/* Administrator console (public auth screens) */}
-      <Route path="/admin-login" element={<AdminLogin />} />
-      <Route path="/verify-admin-email" element={<VerifyAdminEmail />} />
-      <Route path="/admin-reset-password" element={<ResetAdminPassword />} />
-      <Route path="/admin-invite" element={<AcceptInvite />} />
+          {/* passenger */}
+          <Route path="/passenger" element={<Require roles={['rider']}><PassengerLayout /></Require>}>
+            <Route index element={<PassengerDashboard />} />
+            <Route path="book" element={<BookRide />} />
+            <Route path="ride/:id" element={<RideTracking />} />
+            <Route path="rides" element={<RideHistory />} />
+            <Route path="payments" element={<PassengerPayments />} />
+            <Route path="places" element={<SavedPlaces />} />
+            <Route path="profile" element={<Profile />} />
+          </Route>
 
-      {/* Passenger */}
-      <Route path="/app" element={<Protected roles={['passenger']}><DashboardLayout /></Protected>}>
-        <Route index element={<PassengerDashboard />} />
-        <Route path="book" element={<BookRide />} />
-        <Route path="ride/:id" element={<RideTracking />} />
-        <Route path="history" element={<RideHistory />} />
-        <Route path="payments" element={<PassengerPayments />} />
-        <Route path="locations" element={<SavedLocations />} />
-        <Route path="profile" element={<ProfilePage />} />
-        <Route path="support" element={<SupportPage />} />
-      </Route>
+          {/* driver */}
+          <Route path="/driver" element={<Require roles={['driver']}><DriverLayout /></Require>}>
+            <Route index element={<DriverDashboard />} />
+            <Route path="rides" element={<DriverRides />} />
+            <Route path="earnings" element={<DriverEarnings />} />
+            <Route path="profile" element={<DriverProfile />} />
+          </Route>
 
-      {/* Driver */}
-      <Route path="/driver" element={<Protected roles={['driver']}><DashboardLayout /></Protected>}>
-        <Route index element={<DriverDashboard />} />
-        <Route path="rides" element={<DriverRides />} />
-        <Route path="earnings" element={<DriverEarnings />} />
-        <Route path="reviews" element={<DriverReviews />} />
-        <Route path="profile" element={<DriverProfilePage />} />
-        <Route path="support" element={<SupportPage />} />
-      </Route>
+          {/* administrator */}
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin" element={<Require roles={['admin']}><AdminLayout /></Require>}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="drivers" element={<AdminDrivers />} />
+            <Route path="rides" element={<AdminRides />} />
+            <Route path="payments" element={<AdminPayments />} />
+            <Route path="ratings" element={<AdminRatings />} />
+            <Route path="settings" element={<AdminSettings />} />
+            <Route path="activity" element={<AdminActivity />} />
+          </Route>
 
-      {/* Admin */}
-      <Route path="/admin" element={<Protected roles={ADMIN_ROLES}><DashboardLayout /></Protected>}>
-        <Route index element={<AdminOverview />} />
-        <Route path="users" element={<AdminUsers />} />
-        <Route path="drivers" element={<AdminDrivers />} />
-        <Route path="drivers-directory" element={<DriversDirectory />} />
-        <Route path="bookings" element={<AdminBookings />} />
-        <Route path="live" element={<LiveRides />} />
-        <Route path="payments" element={<AdminPayments />} />
-        <Route path="revenue" element={<Revenue />} />
-        <Route path="refunds" element={<Refunds />} />
-        <Route path="reports" element={<AdminReports />} />
-        <Route path="tickets" element={<AdminTickets />} />
-        <Route path="admins" element={<AdminManagement />} />
-        <Route path="analytics" element={<AdminAnalytics />} />
-        <Route path="cities" element={<AdminCities />} />
-        <Route path="pricing" element={<Pricing />} />
-        <Route path="notifications" element={<Notifications />} />
-        <Route path="audit" element={<AuditLogs />} />
-        <Route path="settings" element={<AdminSettings />} />
-        <Route path="security" element={<Security />} />
-        <Route path="2fa-setup" element={<TwoFactorSetup />} />
-      </Route>
-
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-    <BackButtonHandler />
-    </>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }

@@ -1,40 +1,27 @@
-/* Deploys Sawaari to Render through the Render API.
+/* Deploys the Sawaari static site to Render through the Render API.
  *
- *   $env:RENDER_API_KEY = "rnd_..."      (Windows PowerShell)
  *   export RENDER_API_KEY="rnd_..."      (macOS / Linux)
- *   node scripts/deploy-render.js            # dry run: report what it would do
+ *   $env:RENDER_API_KEY = "rnd_..."      (Windows PowerShell)
+ *   node scripts/deploy-render.js            # dry run
  *   node scripts/deploy-render.js --apply    # do it
  *
- * What it does
- *   1. lists the services and finds the API (Web Service) and the front end
- *      (Static Site) by name
- *   2. creates whatever is missing (the static site, and the Postgres if
- *      the API has no database)
- *   3. puts the environment variables in place — the secrets are generated
- *      here and never written to the repository
- *   4. triggers a deploy with the build cache cleared (Vite bakes the env
- *      vars into the bundle, so a cached build keeps the old address)
- *   5. waits for the deploy and verifies /api/health
- *
- * The service_role key of Supabase is NEVER used here — it is not needed
- * for the Express API, and it must never reach the browser.
+ * There is no backend any more — Supabase is the whole backend — so this
+ * only manages the one static site: it sets the two environment variables
+ * (the Supabase URL and the publishable key), triggers a deploy with the
+ * build cache cleared and verifies that the site answers.
  */
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..');
 const APPLY = process.argv.includes('--apply');
 const KEY = process.env.RENDER_API_KEY || '';
 const API = 'https://api.render.com/v1';
 
-const WANT = {
-  api: 'sawaari',
-  web: 'sawaari-web',
-};
+const NAME = 'sawaari-web';
+const REPO = 'https://github.com/raju7895/sawaari';
 
 const log = (...a) => console.log(...a);
-const hex = (n) => crypto.randomBytes(n).toString('hex');
 
 async function render(pathname, { method = 'GET', body } = {}) {
   const res = await fetch(`${API}${pathname}`, {
@@ -58,131 +45,74 @@ async function render(pathname, { method = 'GET', body } = {}) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* ── 1. inventory ─────────────────────────────────────────────────────── */
-async function listServices() {
-  const services = await render('/services?limit=100');
-  return services;
-}
-
-/* The owner's address comes from the local server/.env (never committed),
-   so no personal data ends up in the repository. */
-function ownerEmail() {
-  if (process.env.SUPER_ADMIN_EMAIL) return process.env.SUPER_ADMIN_EMAIL;
+/** The values the bundle needs. The anon key is public by design. */
+function siteEnv() {
+  const env = {};
   try {
-    const env = fs.readFileSync(path.join(ROOT, 'server', '.env'), 'utf8');
-    const m = env.match(/^SUPER_ADMIN_EMAIL=(.+)$/m);
-    if (m) return m[1].trim();
-  } catch { /* no local .env */ }
-  return 'owner@example.com';
-}
-
-/* ── 2. env vars ───────────────────────────────────────────────────────── */
-function desiredApiEnv({ frontendUrl, databaseUrl, existing = [] }) {
-  const have = new Map(existing.map((e) => [e.key, e.value]));
-  const set = (key, value) => { if (!have.get(key)) have.set(key, value); };
-
-  set('NODE_ENV', 'production');
-  set('NODE_VERSION', '20');
-  set('JWT_SECRET', hex(32));
-  set('OTP_PEPPER', hex(24));
-  set('ADMIN_TOTP_ENCRYPTION_KEY', hex(32));
-  set('SUPER_ADMIN_EMAIL', ownerEmail());
-  set('SUPER_ADMIN_PASSWORD', 'Sawaari-' + hex(9));
-  set('APP_URL', frontendUrl);
-  set('FRONTEND_URL', frontendUrl);
-  if (databaseUrl) set('DATABASE_URL', databaseUrl);
-  return [...have.entries()].map(([key, value]) => ({ key, value }));
-}
-
-/* ── 3. the front end ──────────────────────────────────────────────────── */
-async function ensureStaticSite(services, apiUrl, supabaseUrl, anonKey) {
-  let site = services.find((s) => s.name === WANT.web && s.type === 'static_site');
-  if (!site) {
-    log(`  creating the static site "${WANT.web}"`);
-    site = await render('/services', {
-      method: 'POST',
-      body: {
-        name: WANT.web,
-        type: 'static_site',
-        repo: 'https://github.com/raju7895/sawaari',
-        branch: 'main',
-        autoDeploy: true,
-        buildCommand: 'cd web && npm ci --include=dev && npm run build',
-        staticPublishPath: './dist',
-        envVars: [
-          { key: 'VITE_API_URL', value: apiUrl },
-          { key: 'VITE_SUPABASE_URL', value: supabaseUrl },
-          { key: 'VITE_SUPABASE_ANON_KEY', value: anonKey },
-        ],
-      },
-    });
-  } else {
-    log(`  static site "${WANT.web}" exists (${site.id})`);
-  }
-  return site;
-}
-
-/* ── 4. deploy + verify ────────────────────────────────────────────────── */
-async function deploy(service) {
-  log(`  triggering a deploy with the build cache cleared…`);
-  const deploy = await render(`/services/${service.id}/deploys?solid=false&clearCache=true`, { method: 'POST' });
-  const id = deploy && deploy.id;
-  log(`  deploy id: ${id}`);
-
-  for (let i = 0; i < 60; i++) {
-    await sleep(10000);
-    const list = await render(`/services/${service.id}/deploys?limit=1`);
-    const latest = (list && list[0]) || {};
-    log(`    ${latest.status}  ${latest.updatedAt || ''}`);
-    if (['live', 'succeeded'].includes(latest.status)) return latest;
-    if (['build_failed', 'update_failed', 'canceled', 'deactivated'].includes(latest.status)) {
-      const logs = await render(`/services/${service.id}/logs?type=build&start=${encodeURIComponent(latest.createdAt || '')}&limit=60`);
-      log('  ---- last build log lines ----');
-      (logs.logLines || []).slice(-25).forEach((l) => log('   ' + (l.text || '')));
-      throw new Error(`deploy ${latest.status}`);
+    const text = fs.readFileSync(path.join(ROOT, 'web', '.env'), 'utf8');
+    for (const line of text.split('\n')) {
+      const m = line.match(/^(VITE_[A-Z_]+)=(.*)$/);
+      if (m) env[m[1]] = m[2].trim();
     }
-  }
-  throw new Error('the deploy did not finish within 10 minutes');
+  } catch { /* no local .env — the values come from the environment */ }
+  return [
+    { key: 'VITE_SUPABASE_URL', value: env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '' },
+    { key: 'VITE_SUPABASE_ANON_KEY', value: env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '' },
+  ];
 }
 
 async function main() {
   if (!KEY) {
     log('✖ RENDER_API_KEY is not set.');
-    log('  PowerShell : $env:RENDER_API_KEY = "rnd_..."');
-    log('  macOS/Linux: export RENDER_API_KEY="rnd_..."');
+    log('  PowerShell  : $env:RENDER_API_KEY = "rnd_..."');
+    log('  macOS/Linux : export RENDER_API_KEY="rnd_..."');
     process.exit(1);
   }
 
   log('== 1. the services in the account ==');
-  const services = await listServices();
+  const services = await render('/services?limit=100');
   for (const s of services) {
     log(`  ${s.name.padEnd(18)} ${s.type.padEnd(12)} ${s.serviceDetails?.url || s.staticSiteDetails?.url || ''}`);
   }
 
-  const apiService = services.find((s) => s.type === 'web_service');
-  if (!apiService) {
-    log('✖ no Web Service found — create one first (name it "sawaari", root dir "server")');
+  let site = services.find((s) => s.name === NAME && s.type === 'static_site');
+  const wanted = siteEnv();
+  const missing = wanted.filter((v) => !v.value);
+  if (missing.length) {
+    log(`\n✖ ${missing.map((m) => m.key).join(', ')} ${missing.length > 1 ? 'are' : 'is'} not set.`);
+    log('  Put them in web/.env (copy web/.env.example) or in the environment, and run again.');
     process.exit(1);
   }
-  log(`\n== 2. the API service: ${apiService.name} (${apiService.id}) ==`);
 
-  const staticSite = services.find((s) => s.type === 'static_site');
-  const frontendUrl = (staticSite && (staticSite.staticSiteDetails?.url || staticSite.serviceDetails?.url))
-    || `https://${WANT.web}.onrender.com`;
-  const apiUrl = apiService.serviceDetails?.url || `https://${apiService.name}.onrender.com`;
-  log(`  API URL      : ${apiUrl}`);
-  log(`  frontend URL : ${frontendUrl}`);
-
-  log('\n== 3. the recent deploys of the API ==');
-  const deploys = await render(`/services/${apiService.id}/deploys?limit=5`);
-  for (const d of deploys || []) {
-    log(`  ${String(d.status).padEnd(14)} ${d.commit && d.commit.message ? d.commit.message.slice(0, 70) : ''}`);
+  log(`\n== 2. the static site ==`);
+  if (!site) {
+    log(`  it does not exist yet — creating "${NAME}"`);
+    if (!APPLY) { log('  (dry run — re-run with --apply to create it)'); return; }
+    site = await render('/services', {
+      method: 'POST',
+      body: {
+        name: NAME,
+        type: 'static_site',
+        repo: REPO,
+        branch: 'main',
+        autoDeploy: true,
+        rootDir: 'web',
+        buildCommand: 'npm install && npm run build',
+        staticPublishPath: './dist',
+        envVars: wanted,
+        routes: [{ type: 'rewrite', source: '/*', destination: '/index.html' }],
+      },
+    });
+    log(`  created: ${site.id}`);
+  } else {
+    log(`  it exists (${site.id})`);
   }
-  const failed = (deploys || []).find((d) => ['build_failed', 'update_failed'].includes(d.status));
-  if (failed) {
-    log('\n  ---- the build log of the failed deploy ----');
-    const logs = await render(`/services/${apiService.id}/logs?type=build&start=${encodeURIComponent(failed.createdAt || '')}&limit=80`);
-    (logs.logLines || []).slice(-30).forEach((l) => log('   ' + (l.text || '')));
+
+  const current = await render(`/services/${site.id}/env-vars`);
+  for (const v of wanted) {
+    const was = (current || []).find((c) => c.key === v.key);
+    const state = !was ? 'NEW' : was.value === v.value ? 'same' : 'CHANGED';
+    log(`  ${state.padEnd(8)} ${v.key}`);
   }
 
   if (!APPLY) {
@@ -190,46 +120,53 @@ async function main() {
     return;
   }
 
-  log('\n== 4. the environment variables ==');
-  const current = await render(`/services/${apiService.id}/env-vars`);
-  const wanted = desiredApiEnv({ frontendUrl, existing: current });
-  for (const e of wanted) {
-    const was = (current || []).find((c) => c.key === e.key);
-    const state = !was ? 'NEW  ' : was.value === e.value ? 'same ' : 'CHANGED';
-    log(`  ${state} ${e.key}`);
-  }
-  await render(`/services/${apiService.id}/env-vars`, { method: 'PUT', body: wanted });
+  await render(`/services/${site.id}/env-vars`, {
+    method: 'PUT',
+    body: [...(current || []).filter((c) => !wanted.some((v) => v.key === c.key)), ...wanted],
+  });
+  log('  environment variables saved');
 
-  log('\n== 5. the front end ==');
-  const site = await ensureStaticSite(services, apiUrl,
-    'https://vwpxxgmcjrzegnqrpvsv.supabase.co',
-    process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_DWc8VP6s8ToTLa5f_AxoHg_rtJvN8A6');
-  const siteEnv = await render(`/services/${site.id}/env-vars`);
-  log(`  env vars on the static site: ${(siteEnv || []).map((e) => e.key).join(', ') || '(none)'}`);
+  log('\n== 3. deploying (build cache cleared) ==');
+  const deploy = await render(`/services/${site.id}/deploys?solid=false&clearCache=true`, { method: 'POST' });
+  log(`  deploy id: ${deploy && deploy.id}`);
 
-  log('\n== 6. deploying ==');
-  await deploy(apiService);
-  log('  API deployed');
-  await deploy(site);
-  log('  front end deployed');
-
-  log('\n== 7. verifying ==');
-  for (let i = 0; i < 20; i++) {
-    try {
-      const res = await fetch(`${apiUrl}/api/health`, { headers: { Accept: 'application/json' } });
-      const body = await res.json();
-      log(`  GET ${apiUrl}/api/health → ${res.status} ${JSON.stringify(body).slice(0, 200)}`);
-      if (body && body.ok) { log('\n✔ the API is live and healthy'); break; }
-    } catch (e) {
-      log(`  … still starting (${e.message})`);
-    }
+  let last = null;
+  for (let i = 0; i < 90; i++) {
     await sleep(10000);
+    const list = await render(`/services/${site.id}/deploys?limit=1`);
+    last = (list && list[0]) || null;
+    log(`    ${last?.status}  ${last?.updatedAt || ''}`);
+    if (['live', 'succeeded'].includes(last?.status)) break;
+    if (['build_failed', 'update_failed', 'canceled', 'deactivated'].includes(last?.status)) {
+      const logs = await render(`/services/${site.id}/logs?type=build&start=${encodeURIComponent(last.createdAt || '')}&limit=60`);
+      log('  ---- last build log ----');
+      (logs.logLines || []).slice(-25).forEach((l) => log('   ' + (l.text || '')));
+      throw new Error(`the deploy ${last.status}`);
+    }
   }
+  if (!last || !['live', 'succeeded'].includes(last.status)) {
+    throw new Error('the deploy did not finish within 15 minutes');
+  }
+  log('  the site is live');
+
+  log('\n== 4. verifying ==');
+  const url = site.serviceDetails?.url || site.staticSiteDetails?.url || `https://${NAME}.onrender.com`;
+  log(`  GET ${url}/`);
   try {
-    const res = await fetch(frontendUrl, { redirect: 'follow' });
-    log(`  GET ${frontendUrl} → ${res.status}`);
+    const res = await fetch(url, { redirect: 'follow' });
+    const html = await res.text();
+    log(`  → HTTP ${res.status}, ${html.length} bytes`);
+    log(`  → the app shell is ${html.includes('<div id="root"') ? 'present' : 'MISSING'}`);
   } catch (e) {
-    log(`  GET ${frontendUrl} → ${e.message}`);
+    log(`  → ${e.message}`);
+  }
+  for (const path of ['/login', '/register', '/admin/login']) {
+    try {
+      const res = await fetch(`${url}${path}`, { redirect: 'follow' });
+      log(`  GET ${path} → HTTP ${res.status} (a deep link must serve the app, not a 404)`);
+    } catch (e) {
+      log(`  GET ${path} → ${e.message}`);
+    }
   }
 }
 

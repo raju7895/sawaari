@@ -1,26 +1,18 @@
-/* Supabase Storage helpers.
+/* Supabase Storage.
  *
- * Three buckets (created by the migration):
- *   avatars   public  — profile photos
- *   vehicles  public  — auto-rickshaw photos
- *   documents private — driver licence / aadhaar / RC / insurance.
- *                      Only the driver and admins who can verify drivers
- *                      may read them (storage RLS).
+ *   avatars          public   — profile photos, read by everyone
+ *   driver-documents private  — licences and papers: the owner and admins only
  */
 import { supabase } from './supabase';
 
 const MAX_BYTES = 8 * 1024 * 1024;               // 8 MB
 const ALLOWED = {
   avatars: ['image/'],
-  vehicles: ['image/'],
-  documents: ['image/', 'application/pdf'],
+  'driver-documents': ['image/', 'application/pdf'],
 };
 
-/**
- * Uploads a file into a bucket under the user's own folder.
- * Returns the storage path (store that in the database — never the URL).
- */
-export async function uploadToBucket(bucket, file, path) {
+/** Uploads a file under the user's own folder and returns the path. */
+export async function uploadFile(bucket, file, path) {
   if (!file) throw new Error('No file selected.');
   if (file.size > MAX_BYTES) {
     throw new Error(`That file is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is 8 MB.`);
@@ -45,10 +37,7 @@ export function publicUrl(bucket, path) {
   return data?.publicUrl || null;
 }
 
-/**
- * A temporary signed URL for a private file (driver documents).
- * The URL expires — never store it.
- */
+/** A temporary signed URL for a private file (never store it). */
 export async function signedUrl(bucket, path, seconds = 300) {
   if (!path) return null;
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, seconds);
@@ -56,8 +45,7 @@ export async function signedUrl(bucket, path, seconds = 300) {
   return data?.signedUrl || null;
 }
 
-/** Removes a file the user owns. */
-export async function removeFromBucket(bucket, path) {
+export async function removeFile(bucket, path) {
   const { error } = await supabase.storage.from(bucket).remove([path]);
   if (error) throw new Error(error.message || 'The file could not be deleted.');
   return true;

@@ -1,25 +1,21 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, MapPin, ShieldCheck, Wallet, Clock, PhoneCall, Sparkles, Navigation, Star, Server } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { api } from '../api';
 import { useTheme } from '../context/ThemeContext';
-import { LogoMark } from '../components/DashboardLayout';
+import LogoMark from '../components/LogoMark';
 import { useAuth } from '../context/AuthContext';
-import { homeFor, isAdminRole } from '../roles';
-import ServerSettings from '../components/ServerSettings';
+import { homeFor } from '../roles';
 import InstallPrompt from '../components/InstallPrompt';
 
 export default function Landing() {
   const { user } = useAuth();
-  const [cities, setCities] = useState([]);
   const { dark, toggle } = useTheme();
   const [serverOpen, setServerOpen] = useState(false);
 
   useEffect(() => {
-    api.get('/api/meta/cities').then(setCities).catch(() => {});
   }, []);
 
-  const home = homeFor(user);
+  const home = homeFor(user?.role);
   const ctaLabel = user ? 'Go to dashboard' : 'Get started';
 
   return (
@@ -157,7 +153,7 @@ export default function Landing() {
           <h2 className="text-center text-3xl font-extrabold">Now serving</h2>
           <p className="mt-2 text-center text-slate-500 dark:text-slate-400">Live service areas with city-wise transparent pricing</p>
           <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {cities.map((c) => (
+            {["Bengaluru", "Ahmedabad", "Pune", "Mumbai", "Delhi NCR"].map((c) => (
               <div key={c.id} className="card p-4 text-center">
                 <MapPin className="mx-auto h-5 w-5 text-brand-600" />
                 <p className="mt-2 font-bold">{c.name}</p>
@@ -215,7 +211,6 @@ export default function Landing() {
         </div>
       </footer>
 
-      <ServerSettings open={serverOpen} onClose={() => setServerOpen(false)} />
       <InstallPrompt />
     </div>
   );
