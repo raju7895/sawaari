@@ -137,10 +137,13 @@ async function main() {
   const bundle = jsFiles.map((f) => fs.readFileSync(f, 'utf8')).join('');
   ok('VITE_API_URL baked into the bundle', bundle.includes(BASE), BASE);
   const localUrls = [...new Set(bundle.match(/https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/g) || [])];
-  // the only local URL allowed is the baked-in API base itself
-  const unexpected = localUrls.filter((u) => !BASE.startsWith(u.replace(/:\d+$/, '')) || !u.includes(BASE.split(':')[2] || 'x'));
+  // http://localhost:9999 is supabase-js' own internal default for its realtime
+  // endpoint — it is never used once VITE_SUPABASE_URL is set. Everything else
+  // that points at localhost would break the deployed app.
+  const libraryDefaults = ['http://localhost:9999'];
+  const unexpectedLocal = localUrls.filter((u) => !libraryDefaults.includes(u));
   ok('no hardcoded localhost API in the bundle',
-    localUrls.every((u) => u === BASE || u.startsWith(BASE)),
+    unexpectedLocal.every((u) => u === BASE || u.startsWith(BASE)),
     localUrls.length ? localUrls.join(', ') : 'none found');
   ok('relative /api paths are appended to the base (apiBase)',
     bundle.includes('apiBase') || bundle.includes('/api/'),

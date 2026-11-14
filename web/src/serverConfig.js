@@ -22,9 +22,11 @@
 
 const STORAGE_KEY = 'sawaari-server-url';
 /* The port the API listens on locally. The development fallback is built
-   from it, so no full URL is hardcoded in the source. */
+   from it, so no full URL is hardcoded in the source — and it is guarded
+   by import.meta.env.DEV, which means the production bundle never carries
+   a localhost address. */
 const DEV_API_PORT = 4000;
-const DEV_FALLBACK = `http://localhost:${DEV_API_PORT}`;   // audit:dev-only
+const DEV_FALLBACK = import.meta.env.DEV ? `http://localhost:${DEV_API_PORT}` : '';   // audit:dev-only
 const VITE_DEV_PORT = '5173';
 
 const isNative = () => typeof window !== 'undefined'

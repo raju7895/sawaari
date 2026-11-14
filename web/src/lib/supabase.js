@@ -16,6 +16,12 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 /** True when the build carries a usable Supabase configuration. */
 export const isSupabaseConfigured = Boolean(url && anonKey);
 
+/* The local Supabase Studio is a DEVELOPMENT fallback only. Guarding it
+   with import.meta.env.DEV means the production bundle never contains a
+   localhost address — a bundle that points at localhost is exactly what
+   makes a deployed app say "cannot reach the server". */
+const LOCAL_FALLBACK = import.meta.env.DEV ? 'http://127.0.0.1:54321' : '';   // audit:dev-only
+
 if (!isSupabaseConfigured) {
   console.error(
     '[supabase] VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are not set. ' +
@@ -24,7 +30,7 @@ if (!isSupabaseConfigured) {
 }
 
 export const supabase = createClient(
-  url || 'http://127.0.0.1:54321',        // audit:dev-only — local Supabase Studio
+  url || LOCAL_FALLBACK,
   anonKey || 'missing-anon-key',
   {
     auth: {
