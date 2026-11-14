@@ -40,7 +40,35 @@ async function render(pathname, { method = 'GET', body } = {}) {
     const detail = (json && (json.message || json.error)) || text.slice(0, 300);
     throw new Error(`${method} ${pathname} → ${res.status}: ${detail}`);
   }
+  /* the API wraps the object in { service: {...} } / { deploy: {...} } */
+  if (json && typeof json === 'object' && !Array.isArray(json)) {
+    if (json.service) return json.service;
+    if (json.deploy) return json.deploy;
+  }
   return json;
+}
+
+/** The services in the account (the list wraps every entry in { service }). */
+async function listServices() {
+  const res = await fetch(`${API}/services?limit=100`, {
+    headers: { Authorization: `Bearer ${KEY}`, Accept: 'application/json' },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(`GET /services → ${res.status}: ${JSON.stringify(json).slice(0, 200)}`);
+  return (Array.isArray(json) ? json : []).map((row) => (row && row.service) || row);
+}
+
+/** The workspace (or team) the new service belongs to. */
+async function ownerId() {
+  if (process.env.RENDER_OWNER_ID) return process.env.RENDER_OWNER_ID;
+  const res = await fetch(`${API}/owners`, {
+    headers: { Authorization: `Bearer ${KEY}`, Accept: 'application/json' },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(`GET /owners → ${res.status}: ${JSON.stringify(json).slice(0, 200)}`);
+  const first = (Array.isArray(json) ? json : [json]).map((row) => (row && row.owner) || row)[0];
+  if (!first || !first.id) throw new Error('could not work out the workspace to create the service in');
+  return first.id;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -70,11 +98,10 @@ async function main() {
   }
 
   log('== 1. the services in the account ==');
-  const services = await render('/services?limit=100');
+  const services = await listServices();
   for (const s of services) {
     log(`  ${s.name.padEnd(18)} ${s.type.padEnd(12)} ${s.serviceDetails?.url || s.staticSiteDetails?.url || ''}`);
   }
-
   let site = services.find((s) => s.name === NAME && s.type === 'static_site');
   const wanted = siteEnv();
   const missing = wanted.filter((v) => !v.value);
@@ -93,16 +120,12 @@ async function main() {
       body: {
         name: NAME,
         type: 'static_site',
+        ownerID: await ownerId(),
         repo: REPO,
         branch: 'main',
-        autoDeploy: true,
+        autoDeploy: 'yes',
         rootDir: 'web',
-        // --include=dev is required: if NODE_ENV=production is set, npm skips
-        // devDependencies and the build fails with "vite is not recognized"
-        buildCommand: 'npm install --include=dev && npm run build',
-        staticPublishPath: './dist',
         envVars: wanted,
-        routes: [{ type: 'rewrite', source: '/*', destination: '/index.html' }],
       },
     });
     log(`  created: ${site.id}`);
@@ -110,12 +133,53 @@ async function main() {
     log(`  it exists (${site.id})`);
   }
 
-  const current = await render(`/services/${site.id}/env-vars`);
+  /* The build settings of a static site live in "serviceDetails" (the API
+     uses oneOf there, so the object tells Render which kind of service it
+     is). A site created without them builds the wrong folder - or nothing. */
+  const BUILD_COMMAND = 'npm install --include=dev && npm run build';
+  const PUBLISH_PATH = './dist';
+  const details = site.serviceDetails || {};
+  if (details.buildCommand !== BUILD_COMMAND || details.publishPath !== PUBLISH_PATH) {
+    log(`  buildCommand  ${details.buildCommand || '(empty)'} -> ${BUILD_COMMAND}`);
+    log(`  publishPath   ${details.publishPath || '(empty)'} -> ${PUBLISH_PATH}`);
+    if (APPLY) {
+      site = await render(`/services/${site.id}`, {
+        method: 'PATCH',
+        body: { serviceDetails: { buildCommand: BUILD_COMMAND, publishPath: PUBLISH_PATH } },
+      });
+      log('  build settings saved');
+    }
+  } else {
+    log('  build settings are right');
+  }
+
+  /* the single-page-app rewrite: every path has to serve index.html */
+  const routes = await render(`/services/${site.id}/routes`);
+  const routeList = (Array.isArray(routes) ? routes : [routes]).map((r) => (r && r.route) || r).filter(Boolean);
+  const hasRewrite = routeList.some((r) => r.type === 'rewrite' && r.destination === '/index.html');
+  if (!hasRewrite) {
+    log('  rewrite rule  missing -> /*  ->  /index.html');
+    if (APPLY) {
+      await render(`/services/${site.id}/routes`, {
+        method: 'PUT',
+        body: [{ type: 'rewrite', source: '/*', destination: '/index.html' }],
+      });
+      log('  rewrite rule saved');
+    }
+  } else {
+    log('  rewrite rule is right');
+  }
+
+  const current = (await render(`/services/${site.id}/env-vars`)) || [];
+  /* the endpoint answers with { envVar: { key, value }, cursor } per row */
+  const currentVars = current.map((row) => (row && row.envVar) || row);
   for (const v of wanted) {
-    const was = (current || []).find((c) => c.key === v.key);
+    const was = currentVars.find((c) => c.key === v.key);
     const state = !was ? 'NEW' : was.value === v.value ? 'same' : 'CHANGED';
     log(`  ${state.padEnd(8)} ${v.key}`);
   }
+  const stale = currentVars.filter((c) => !wanted.some((v) => v.key === c.key));
+  for (const c of stale) log(`  STALE    ${c.key} (left over from an earlier setup)`);
 
   if (!APPLY) {
     log('\n(dry run — re-run with --apply to make the changes)');
@@ -124,7 +188,7 @@ async function main() {
 
   await render(`/services/${site.id}/env-vars`, {
     method: 'PUT',
-    body: [...(current || []).filter((c) => !wanted.some((v) => v.key === c.key)), ...wanted],
+    body: [...currentVars.filter((c) => !wanted.some((v) => v.key === c.key)), ...wanted].map((c) => ({ key: c.key, value: c.value })),
   });
   log('  environment variables saved');
 
@@ -136,13 +200,14 @@ async function main() {
   for (let i = 0; i < 90; i++) {
     await sleep(10000);
     const list = await render(`/services/${site.id}/deploys?limit=1`);
-    last = (list && list[0]) || null;
+    const row = Array.isArray(list) ? list[0] : list;
+    last = (row && (row.deploy || row)) || null;
     log(`    ${last?.status}  ${last?.updatedAt || ''}`);
     if (['live', 'succeeded'].includes(last?.status)) break;
     if (['build_failed', 'update_failed', 'canceled', 'deactivated'].includes(last?.status)) {
       const logs = await render(`/services/${site.id}/logs?type=build&start=${encodeURIComponent(last.createdAt || '')}&limit=60`);
       log('  ---- last build log ----');
-      (logs.logLines || []).slice(-25).forEach((l) => log('   ' + (l.text || '')));
+      ((logs.logLines) || []).slice(-25).forEach((l) => log('   ' + (l.text || '')));
       throw new Error(`the deploy ${last.status}`);
     }
   }
