@@ -54,7 +54,7 @@ grant usage on schema public to anon, authenticated, service_role;
 
 -- ── updated_at maintenance ────────────────────────────────────────────────
 create or replace function public.touch_updated_at()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = public, pg_temp as $$
 begin
   new.updated_at := now();
   return new;
@@ -609,7 +609,7 @@ create index if not exists admin_audit_target_idx  on public.admin_audit_log(tar
 
 -- append-only, for everybody
 create or replace function public.audit_log_is_append_only()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = public, pg_temp as $$
 begin
   raise exception 'admin_audit_log is append-only: % is not permitted', tg_op
     using errcode = 'restrict_violation';
@@ -652,7 +652,7 @@ create index if not exists user_suspensions_active_idx on public.user_suspension
 
 -- The owner can never be downgraded, suspended or deleted.
 create or replace function public.protect_owner_account()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = public, pg_temp as $$
 declare
   v_was_owner boolean;
 begin
@@ -673,6 +673,52 @@ drop trigger if exists admin_owner_protect on public.admin_profiles;
 create trigger admin_owner_protect
   before update or delete on public.admin_profiles
   for each row execute function public.protect_owner_account();
+
+-- ── Indexes on every foreign key ────────────────────────────────────────
+-- PostgreSQL does NOT index foreign keys automatically, and every join and
+-- every "rows for this parent" lookup pays for it. These are the ones the
+-- Supabase linter flagged as unindexed.
+create index if not exists bookings_passenger_id_fk            on public.bookings (passenger_id);
+create index if not exists bookings_driver_profile_id_fk       on public.bookings (driver_profile_id);
+create index if not exists bookings_cancelled_by_fk            on public.bookings (cancelled_by);
+create index if not exists pricing_configs_city_id_fk          on public.pricing_configs (city_id);
+create index if not exists platform_settings_updated_by_fk     on public.platform_settings (updated_by);
+create index if not exists driver_earnings_driver_profile_id_fk on public.driver_earnings (driver_profile_id);
+create index if not exists driver_profiles_reviewed_by_fk     on public.driver_profiles (reviewed_by);
+create index if not exists driver_documents_reviewed_by_fk    on public.driver_documents (reviewed_by);
+create index if not exists reviews_reviewer_id_fk              on public.reviews (reviewer_id);
+create index if not exists ride_events_booking_id_fk           on public.ride_events (booking_id);
+create index if not exists ride_events_actor_id_fk             on public.ride_events (actor_id);
+create index if not exists booking_messages_booking_id_fk      on public.booking_messages (booking_id);
+create index if not exists booking_messages_sender_id_fk       on public.booking_messages (sender_id);
+create index if not exists payments_passenger_id_fk            on public.payments (passenger_id);
+create index if not exists payments_verified_by_fk             on public.payments (verified_by);
+create index if not exists refunds_payment_id_fk               on public.refunds (payment_id);
+create index if not exists refunds_booking_id_fk               on public.refunds (booking_id);
+create index if not exists refunds_initiated_by_fk             on public.refunds (initiated_by);
+create index if not exists refunds_approved_by_fk              on public.refunds (approved_by);
+create index if not exists settlements_driver_profile_id_fk   on public.settlements (driver_profile_id);
+create index if not exists settlements_created_by_fk           on public.settlements (created_by);
+create index if not exists notifications_user_id_fk            on public.notifications (user_id);
+create index if not exists support_tickets_user_id_fk          on public.support_tickets (user_id);
+create index if not exists support_tickets_booking_id_fk       on public.support_tickets (booking_id);
+create index if not exists support_tickets_assigned_to_fk      on public.support_tickets (assigned_to);
+create index if not exists ticket_messages_ticket_id_fk        on public.ticket_messages (ticket_id);
+create index if not exists ticket_messages_sender_id_fk       on public.ticket_messages (sender_id);
+create index if not exists user_reports_reporter_id_fk         on public.user_reports (reporter_id);
+create index if not exists user_reports_against_user_id_fk    on public.user_reports (against_user_id);
+create index if not exists user_reports_booking_id_fk          on public.user_reports (booking_id);
+create index if not exists user_reports_resolved_by_fk        on public.user_reports (resolved_by);
+create index if not exists report_investigations_report_id_fk on public.report_investigations (report_id);
+create index if not exists report_investigations_admin_id_fk  on public.report_investigations (admin_id);
+create index if not exists sos_alerts_booking_id_fk           on public.sos_alerts (booking_id);
+create index if not exists sos_alerts_user_id_fk              on public.sos_alerts (user_id);
+create index if not exists sos_alerts_acknowledged_by_fk      on public.sos_alerts (acknowledged_by);
+create index if not exists admin_profiles_invited_by_fk       on public.admin_profiles (invited_by);
+create index if not exists admin_audit_log_admin_id_fk        on public.admin_audit_log (admin_id);
+create index if not exists admin_broadcasts_sent_by_fk         on public.admin_broadcasts (sent_by);
+create index if not exists user_suspensions_created_by_fk     on public.user_suspensions (created_by);
+create index if not exists user_suspensions_lifted_by_fk      on public.user_suspensions (lifted_by);
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 7b.  ROLE + PERMISSION HELPERS
@@ -722,6 +768,7 @@ create or replace function public.is_admin()
 returns boolean
 language sql
 stable
+set search_path = public, pg_temp
 as $$ select public.current_role() in (
   'admin','super_admin','finance_admin','support_admin','driver_manager','moderator'
 ); $$;
@@ -730,6 +777,7 @@ create or replace function public.is_super_admin()
 returns boolean
 language sql
 stable
+set search_path = public, pg_temp
 as $$ select public.current_role() = 'super_admin'; $$;
 
 -- ── The platform owner ────────────────────────────────────────────────────
@@ -841,7 +889,7 @@ alter table public.user_suspensions    enable row level security;
 
 -- ── helper: the caller's driver profile id ────────────────────────────────
 create or replace function public.current_driver_profile_id()
-returns uuid language sql stable as $$
+returns uuid language sql stable set search_path = public, pg_temp as $$
   select dp.id from public.driver_profiles dp where dp.user_id = auth.uid();
 $$;
 
@@ -2281,9 +2329,30 @@ $$;
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant select on all tables in schema public to anon;
 grant usage, select on all sequences in schema public to authenticated;
-grant execute on all functions in schema public to authenticated;
+
+-- ── EXECUTE privileges ────────────────────────────────────────────────
+-- PostgreSQL gives every role EXECUTE on new functions by default, and
+-- Supabase's default privileges give it to `anon` as well — which would
+-- let an anonymous visitor call the SECURITY DEFINER RPCs through
+-- PostgREST (/rest/v1/rpc/…). Take that away and hand it back only where
+-- it is needed:
+--   · authenticated → every RPC
+--   · anon          → the helpers the RLS policies call, plus the two
+--                     genuinely public reads (nearby drivers, the shared
+--                     ride-tracking link)
+revoke execute on all functions in schema public from anon, public;
+grant execute on all functions in schema public to authenticated, service_role;
+
+grant execute on function public.current_role() to anon, authenticated;
+grant execute on function public.is_admin() to anon, authenticated;
+grant execute on function public.is_super_admin() to anon, authenticated;
+grant execute on function public.is_owner() to anon, authenticated;
+grant execute on function public.has_permission(text) to anon, authenticated;
+grant execute on function public.current_driver_profile_id() to anon, authenticated;
+
 grant execute on function public.nearby_drivers(double precision, double precision, double precision, text) to anon, authenticated;
 grant execute on function public.get_booking_by_share_token(text) to anon, authenticated;
+grant execute on function public.quote_fare(double precision, double precision, double precision, double precision, numeric, integer, uuid, text, timestamptz) to anon, authenticated;
 
 -- The service role keeps full access (it bypasses RLS) — it is used by
 -- Edge Functions and by the server-side seed, never by the browser.
