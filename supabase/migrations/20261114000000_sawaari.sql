@@ -136,14 +136,16 @@ create index if not exists payments_status_idx on public.payments (status);
 -- ── ratings ─────────────────────────────────────────────────────────────
 create table if not exists public.ratings (
   id         uuid primary key default gen_random_uuid(),
-  ride_id    uuid not null unique references public.rides(id) on delete cascade,
+  ride_id    uuid not null references public.rides(id) on delete cascade,
   from_user  uuid not null references public.profiles(id) on delete cascade,
   to_user    uuid not null references public.profiles(id) on delete cascade,
   rating     int not null check (rating between 1 and 5),
   comment    text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  unique (ride_id, from_user)          -- one rating per person per ride
 );
 create index if not exists ratings_to_user_idx on public.ratings (to_user);
+create index if not exists ratings_ride_idx   on public.ratings (ride_id);
 
 -- ── driver documents ────────────────────────────────────────────────────
 -- The files live in the private `driver-documents` bucket; this table holds
