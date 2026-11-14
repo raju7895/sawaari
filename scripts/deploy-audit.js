@@ -305,6 +305,12 @@ for (const [dir, info] of Object.entries(declaredDeps)) {
    server are local by design and are skipped.                     */
 const LOCAL_URL = /\b[a-z][a-z0-9+.-]*:\/\/(?:[^/\s"'@]*@)?(localhost|127\.0\.0\.1)(?::\d+)?/gi;
 
+/* A local URL on a line marked "audit:dev-only" is a development default
+   that is guarded by a NODE_ENV / import.meta.env.DEV check and never
+   reaches production. It is listed separately so it stays visible. */
+const DEV_ONLY_MARK = 'audit:dev-only';
+const devOnlyUrls = [];
+
 const SKIP_LOCAL = [
   [/\.md$/i, 'documentation'],
   [/(^|\/)scripts\//i, 'developer tooling'],
@@ -328,6 +334,10 @@ for (const rel of files) {
     if (line.includes('console.log')) return;                       // startup log line
     const hits = line.match(LOCAL_URL);
     if (!hits) return;
+    if (line.includes(DEV_ONLY_MARK)) {
+      devOnlyUrls.push(`${rel}:${i + 1} ${hits.join(', ')}`);
+      return;
+    }
     const envFallback = line.match(/required\(\s*'([A-Z0-9_]+)'/);
     if (envFallback) {
       note('possible', 'environment',
@@ -462,6 +472,11 @@ for (const [state, list] of Object.entries(findings)) {
   for (const f of list) {
     console.log(`  [${f.area}] ${f.file || '(project)'}${f.line ? ':' + f.line : ''} — ${f.message}`);
   }
+  console.log('');
+}
+if (devOnlyUrls.length) {
+  console.log(`── DEVELOPMENT-ONLY URLS (${devOnlyUrls.length}) — never shipped ──`);
+  for (const d of devOnlyUrls) console.log(`  ${d}`);
   console.log('');
 }
 process.exit(findings.confirmed.length ? 1 : 0);

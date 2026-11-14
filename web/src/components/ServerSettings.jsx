@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Server, Save, RotateCcw, CheckCircle2, AlertTriangle, Loader2, Wifi } from 'lucide-react';
 import Modal from './Modal';
-import { apiBase, setApiBase, clearApiBase, describeApiBase } from '../serverConfig';
+import { apiBase, setApiBase, clearApiBase, describeApiBase, apiDiagnostics, isMixedContent } from '../serverConfig';
 import { useToast } from '../context/ToastContext';
 
 /**
@@ -21,16 +21,33 @@ export default function ServerSettings({ open, onClose }) {
     setTesting(true);
     setResult(null);
     const base = url.trim().replace(/\/+$/, '');
+    const target = base || (typeof window !== 'undefined' ? window.location.origin : '');
+    if (base && isMixedContent(base)) {
+      setResult({
+        ok: false,
+        message: 'Blocked by the browser: this page is https:// but the address is http://. Use an https:// address.',
+      });
+      setTesting(false);
+      return;
+    }
     try {
-      const res = await fetch(`${base}/api/health`, { method: 'GET' });
-      const body = await res.json();
+      const res = await fetch(`${target}/api/health`, { method: 'GET', cache: 'no-store' });
+      const type = res.headers.get('content-type') || '';
+      const body = type.includes('application/json') ? await res.json() : { error: await res.text() };
       if (res.ok && body.ok) {
-        setResult({ ok: true, message: `Connected — API v${body.service}, database ${body.integrations?.database ? 'online' : 'offline'}` });
+        setResult({ ok: true, message: `Connected — API ${body.service}, database ${body.integrations?.database ? 'online' : 'offline'}` });
+      } else if (res.status === 503) {
+        setResult({ ok: false, message: 'The API answered, but its database is not reachable (HTTP 503).' });
       } else {
         setResult({ ok: false, message: body.error || `HTTP ${res.status}` });
       }
     } catch (err) {
-      setResult({ ok: false, message: `Cannot reach the server: ${err.message}` });
+      const cause = (err && (err.cause?.message || err.message)) || 'unknown error';
+      console.error('[server-settings] connection test failed', { target, cause });
+      setResult({
+        ok: false,
+        message: `Could not reach ${target}. The address may be wrong, the API may be down, or the browser blocked the reply because the API does not allow this origin (CORS). Details: ${cause}`,
+      });
     } finally {
       setTesting(false);
     }
@@ -63,7 +80,19 @@ export default function ServerSettings({ open, onClose }) {
           <Server className="mt-0.5 h-4 w-4 shrink-0" />
           The installed app needs the address of the server that holds your data.
           Currently using <b className="break-all">{describeApiBase()}</b>.
+          <br />
+          <span className="text-slate-400">
+            source: {apiDiagnostics().source} · page: {apiDiagnostics().pageOrigin}
+          </span>
         </p>
+
+        {isMixedContent(apiBase()) && (
+          <p className="flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            This page is https:// but the API address is http:// — the browser blocks
+            that. Use an https:// address.
+          </p>
+        )}
 
         <div>
           <label className="label">API server address</label>
@@ -78,6 +107,8 @@ export default function ServerSettings({ open, onClose }) {
           />
           <p className="mt-1 text-xs text-slate-400">
             Leave empty to use the same address the app was opened from.
+            On a deployed site this must be the API address, e.g.
+            https://sawaari-api.onrender.com
           </p>
         </div>
 

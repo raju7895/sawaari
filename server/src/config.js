@@ -13,6 +13,10 @@ const config = {
   env: required('NODE_ENV', 'development'),
   port: parseInt(required('PORT', '4000'), 10),
   appUrl: required('APP_URL', 'http://localhost:5173'),
+  /* Origin of the web front end (the Render static site). Several
+     addresses can be given, separated by commas. It is what the CORS
+     allowlist is built from. */
+  frontendUrl: required('FRONTEND_URL', ''),
   databaseUrl: required('DATABASE_URL', 'postgres://postgres:postgres@localhost:5432/sawaari'),
   jwtSecret: required('JWT_SECRET', 'dev-jwt-secret-change-me'),
   otpPepper: required('OTP_PEPPER', 'dev-otp-pepper-change-me'),

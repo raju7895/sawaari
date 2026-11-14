@@ -1,6 +1,6 @@
 const express = require('express');
 const { z } = require('zod');
-const { many } = require('../db');
+const { many, query } = require('../db');
 const { asyncHandler } = require('../utils');
 const { validateQuery } = require('../middleware/validate');
 const geo = require('../services/geo');
@@ -11,12 +11,22 @@ const config = require('../config');
 
 const router = express.Router();
 
-/** GET /api/health */
-router.get('/health', (_req, res) => {
-  res.json({
-    ok: true, service: 'sawaari-api', time: new Date().toISOString(),
+/** GET /api/health — the real state of the service, used by Render's health
+ *  check and by the app's "Test connection" button. The database flag is
+ *  measured, not assumed: a service without its database must not report
+ *  itself as healthy. */
+router.get('/health', async (_req, res) => {
+  let database = false;
+  try {
+    await query('SELECT 1');
+    database = true;
+  } catch (err) {
+    console.error('[health] database check failed:', err.message);
+  }
+  res.status(database ? 200 : 503).json({
+    ok: database, service: 'sawaari-api', time: new Date().toISOString(),
     integrations: {
-      database: true,
+      database,
       razorpay: razorpaySvc.enabled(),
       webPush: pushSvc.enabled,
       smsProvider: config.sms.configured ? config.sms.provider : (config.sms.devMode ? 'dev-mode' : 'none'),

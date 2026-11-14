@@ -303,6 +303,7 @@ Render injects `DATABASE_URL` into every service linked to this database.
 | **Branch** | `main` | matches the local branch |
 | **Auto-Deploy** | **Yes** | every push to `main` rebuilds and redeploys |
 | **Node version** | env `NODE_VERSION=20` | `engines.node` in package.json is the fallback |
+| **Env `FRONTEND_URL`** | `https://<your-static-site>.onrender.com` | the **CORS allowlist** — the browser may only call the API from this origin |
 
 **Resource 3 — Web app (Static Site)**
 
@@ -314,7 +315,16 @@ Render injects `DATABASE_URL` into every service linked to this database.
 | **Publish Directory** | `./dist` | relative to the root directory `web` |
 | **Rewrite rule** | `/*` → `/index.html` | without it every deep link (`/admin/bookings`) returns 404 |
 | **Branch / Auto-Deploy** | `main` / Yes | |
-| **Environment** | `VITE_API_URL=https://sawaari-api.onrender.com` | read **at build time** — change it and *Save & Deploy* to rebuild |
+| **Env `VITE_API_URL`** | `https://<your-api-service>.onrender.com` | the **API address**, read at build time — https, no trailing slash |
+
+> **`VITE_API_URL` is compiled into the bundle.** After changing it you must
+> use **Clear build cache & deploy** (not just *Save & Deploy*) on the static
+> site — a cached build keeps the old address and every request keeps failing.
+
+> **Deploy order: API first, then the static site.** The static site needs
+> the API's address before it can be built, and the API needs the static
+> site's address for `FRONTEND_URL`. Build the API → copy its address into
+> the static site's `VITE_API_URL` → build the static site.
 
 ### 4c. Environment variables (Render → Environment tab)
 
@@ -341,6 +351,7 @@ Then in Render: **Environment → Add from .env** (pastes a whole file) or
 | `SUPER_ADMIN_PASSWORD` | `YourStrongSecret2026` | **no spaces, no `#`, no quotes** |
 | `SUPER_ADMIN_NAME` | `Platform Owner` | shown in the console |
 | `APP_URL` | `https://sawaari-web.onrender.com` | used in share links |
+| `FRONTEND_URL` | `https://sawaari-web.onrender.com` | **CORS allowlist** — the API only answers this origin (comma separated for several). Empty = any origin allowed |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | *(optional)* | a staff admin; generated if unset |
 | `RAZORPAY_KEY_ID` / `_SECRET` / `_WEBHOOK_SECRET` | *(optional)* | UPI QR and cash work without them |
 | `SMS_PROVIDER` | `none` | `msg91` / `twilio` to enable SMS |
@@ -366,7 +377,8 @@ Then in Render: **Environment → Add from .env** (pastes a whole file) or
 | 4 | The app must know it sits behind a proxy | `app.set('trust proxy', 1)` in `server/src/index.js` — without it every request looks like it comes from the proxy and the per-IP rate limiter blocks all logins | ✅ done |
 | 5 | A `start` script must exist | `server/package.json` → `"start": "node src/index.js"` | ✅ done |
 | 6 | Schema and seed data must exist before traffic arrives | the build command runs `npm run migrate && npm run seed && npm run seed:superadmin` | ✅ done |
-| 7 | The client needs the API address at build time | `web/src/serverConfig.js` resolves *saved address → `VITE_API_URL` → same origin* | ✅ done |
+| 7 | The client needs the API address at build time | `web/src/serverConfig.js` resolves *saved address → `VITE_API_URL` → same origin (probed) → dev fallback* | ✅ done |
+| 8 | The API must allow the front end's origin | `server/src/index.js` builds the CORS allowlist from `FRONTEND_URL` + `APP_URL` (+ dev origins outside production) | ✅ done |
 
 **If you ever add a new service**, the three things that break Render are:
 a hardcoded port, a missing `--include=dev`, and a start command that does
@@ -418,7 +430,7 @@ Render.
 | `npm ci can only install with an existing package-lock.json` | `package-lock.json` was not committed, or `package.json` changed without it | run `npm install` locally and commit the updated lockfile |
 | Health check failed | wrong Root Directory, or a start command that does not bind `$PORT` | Root Directory `server`, start `node src/index.js`, health `/api/health` |
 | The site loads but every deep link 404s | the rewrite rule is missing | Static Site → *Redirects & Rewrites* → `/*` → `/index.html` |
-| The web app talks to the wrong / no API | `VITE_API_URL` is read at **build** time | set it in the static site's Environment tab, then *Save & Deploy* |
+| The web app talks to the wrong / no API | `VITE_API_URL` is read at **build** time | set it in the static site's Environment tab, then **Clear build cache & deploy** |
 | Owner login rejected after the first deploy | `SUPER_ADMIN_PASSWORD` was empty — the seed generated a random one that vanished with the container | set the variable and redeploy |
 | Owner login rejected but the password is right | the 2FA code is missing or the secret changed | `npm run admin:2fa -- --code` in the Shell |
 | Logins blocked from one network ("too many attempts") | the rate limiter cannot see the real client IP | `app.set('trust proxy', 1)` must be present (it is) |

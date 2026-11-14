@@ -13,7 +13,57 @@ const server = http.createServer(app);
 
 // trust proxy for correct IPs behind a reverse proxy
 app.set('trust proxy', 1);
-app.use(cors({ origin: true, credentials: true }));
+
+/* ── CORS ────────────────────────────────────────────────────────────────
+   The web app is a separate origin (a Render static site), so the API has
+   to allow it explicitly. The allowlist comes from the environment:
+     FRONTEND_URL  the address of the static site (comma separated for
+                   several), APP_URL the same thing for a single host
+   In development the Vite dev server and the desktop shell are allowed as
+   well.
+
+   If NO allowlist is configured the API keeps reflecting the request
+   origin (the old behaviour) and says so in the log — that way a missing
+   FRONTEND_URL can never take the whole front end down silently.      */
+/* Development origins: the Vite dev server (5173) and the Electron shell
+   (5188). Built from their ports so no full URL is hardcoded here — in
+   production the list stays empty and only FRONTEND_URL / APP_URL count. */
+const DEV_PORTS = [5173, 5188];
+const DEV_ORIGINS = DEV_PORTS.flatMap((port) => [
+  `http://localhost:${port}`,      // audit:dev-only
+  `http://127.0.0.1:${port}`,      // audit:dev-only
+]);
+
+const allowedOrigins = (() => {
+  const list = [];
+  const push = (value) => {
+    String(value || '')
+      .split(',')
+      .map((v) => v.trim().replace(/\/+$/, ''))
+      .filter(Boolean)
+      .forEach((v) => { if (!list.includes(v)) list.push(v); });
+  };
+  push(process.env.FRONTEND_URL);
+  push(config.frontendUrl);
+  push(config.appUrl);
+  if (config.env !== 'production') DEV_ORIGINS.forEach(push);
+  return list;
+})();
+
+const corsOptions = {
+  origin(origin, callback) {
+    // no Origin header → same-origin request, curl, or a native app
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin.replace(/\/+$/, ''))) return callback(null, true);
+    if (allowedOrigins.length === 0) return callback(null, true);
+    // not allowed → no CORS headers, so the browser blocks the reply
+    return callback(null, false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
+app.use(cors(corsOptions));
 
 // Webhook needs the raw body for HMAC; registered before express.json
 const paymentsRouter = require('./routes/payments');
@@ -89,8 +139,9 @@ app.use((err, _req, res, _next) => {
 init(server);
 startScheduler();
 
-server.listen(config.port, async () => {
-  console.log(`✔ Sawaari API listening on http://localhost:${config.port}`);
+server.listen(config.port, '0.0.0.0', async () => {
+  console.log(`✔ Sawaari API listening on http://0.0.0.0:${config.port} (port ${config.port})`);
+  console.log(`  CORS origins: ${allowedOrigins.length ? allowedOrigins.join(', ') : 'ANY (set FRONTEND_URL to lock it down)'}`);
   console.log(`  Razorpay: ${config.razorpay.enabled ? 'ENABLED' : 'not configured (UPI-QR/cash only)'}
   Web push: ${config.vapid.enabled ? 'ENABLED' : 'not configured (in-app only)'}
   SMS: ${config.sms.configured ? config.sms.provider : (config.sms.devMode ? 'DEV MODE (OTP visible)' : 'NOT CONFIGURED')}

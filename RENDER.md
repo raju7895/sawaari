@@ -52,6 +52,7 @@ Render's **Environment** tab → *Add from .env* or add one by one:
 | `SUPER_ADMIN_PASSWORD` | your deployment secret | **no spaces, no `#`, no quotes** |
 | `SUPER_ADMIN_NAME` | your name | shown in the console |
 | `APP_URL` | `https://<your-static-site>.onrender.com` | used in share links |
+| `FRONTEND_URL` | `https://<your-static-site>.onrender.com` | **the CORS allowlist** — the browser is only allowed to call the API from this origin. Several addresses can be given, separated by commas. Leave it empty and the API accepts any origin (it says so in the log) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | staff account | optional, generated if unset |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` | from Razorpay | optional — UPI QR + cash work without it |
 | `SMS_PROVIDER` | `none` \| `msg91` \| `twilio` | optional |
@@ -98,11 +99,19 @@ Render's **Environment** tab → *Add from .env* or add one by one:
 
 | Key | Value |
 |---|---|
-| `VITE_API_URL` | `https://sawaari-api.onrender.com` |
+| `VITE_API_URL` | `https://<your-api-service>.onrender.com` — **the address of the API service, not of this site** |
 
 > `VITE_API_URL` is read **at build time** — Render's build step has the service's
 > environment variables available, so setting it in the Environment tab is enough.
 > Change it → *Save & Deploy* to rebuild.
+>
+> **This is the single most important value on this page.** If it is empty or
+> points at the wrong host, every sign-in and sign-up fails with
+> *"Could not reach …"*, because the front end has nowhere to send the request.
+> It is deliberately **not** hardcoded in `render.yaml`: a hardcoded hostname
+> silently breaks the whole front end as soon as the service is renamed.
+>
+> The value must be **https://** and must not have a trailing slash.
 
 ---
 
@@ -118,6 +127,11 @@ Render's **Environment** tab → *Add from .env* or add one by one:
 
    It prints the TOTP secret (add it to Google Authenticator / Authy / 1Password),
    the `otpauth://` URI and a live 6-digit code.
+
+> **Deploy the API first, then the static site.** The static site needs the API's
+> address in `VITE_API_URL` before it is built, and the API needs `FRONTEND_URL`
+> (the static site's address) for the CORS allowlist. Build the API, copy its
+> address into the static site's Environment tab, then build the static site.
 
 ---
 
@@ -150,6 +164,21 @@ https://sawaari-api.onrender.com
 - [ ] `SMS_DEV_MODE=false`
 - [ ] `NODE_ENV=production`
 - [ ] `APP_URL` matches the live web address
+- [ ] `FRONTEND_URL` on the **API** is the static site's address (CORS)
+- [ ] `VITE_API_URL` on the **static site** is the API's address (https, no trailing slash)
 - [ ] the static site rewrite `/* → /index.html` is in place (otherwise deep links 404)
 - [ ] `npm run admin:2fa` has been run and the secret saved in your authenticator
 - [ ] the database is backed up: `npm run db:backup`
+
+---
+
+## 8. "Could not reach …" — what to check
+
+| Symptom | Where the cause is | Fix |
+|---|---|---|
+| *"Could not reach https://…"* on sign-in | the front end is calling the wrong address | static site → Environment → `VITE_API_URL` → *Save & Deploy* (a rebuild is required — the value is compiled into the bundle) |
+| the console shows `no-api-url` | `VITE_API_URL` is empty and the site is not the API | same as above |
+| the console shows `mixed-content` | the page is https, the API address is http | use an https:// API address |
+| the console shows `network` and the reply was blocked by CORS | the API does not allow this origin | API → Environment → `FRONTEND_URL` = the static site's address → redeploy the API |
+| the API answers but the health check is red | the database is not attached | link the Postgres to the API service |
+| the front end still loads an old bundle | the service worker cached it | hard-reload once (Ctrl+Shift+R) — the cache version is bumped with every release |

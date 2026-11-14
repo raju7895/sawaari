@@ -1,15 +1,18 @@
 /* Sawaari service worker — offline shell + network-first API.
  *
  * Strategy
- *   • app shell (HTML/JS/CSS/icons) → cache-first with background refresh,
- *     so the app opens instantly and still updates itself;
+ *   • navigations → network first, falling back to the cached shell when
+ *     the device is offline (no blank screen);
+ *   • hashed build assets (/assets/…) → network first with a cache
+ *     fallback. They are immutable, so the only reason to serve a stale
+ *     copy is being offline — and serving a stale bundle after a deploy
+ *     is how a fixed API address keeps looking broken;
  *   • /api/* → network-only (never cache rides, payments or locations);
  *   • map tiles → stale-while-revalidate so a patchy connection still shows
  *     a map;
- *   • navigations → network first, falling back to the cached shell when
- *     the device is offline (no blank screen).
+ *   • the rest of the shell → cache-first with a background refresh.
  */
-const VERSION = 'sawaari-v1';
+const VERSION = 'sawaari-v2';
 const SHELL_CACHE = `${VERSION}-shell`;
 const TILE_CACHE = `${VERSION}-tiles`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
@@ -83,6 +86,23 @@ self.addEventListener('fetch', (event) => {
           return res;
         })
         .catch(() => caches.match('/index.html').then((r) => r || caches.match('/')))
+    );
+    return;
+  }
+
+  // hashed build assets: always try the network first so a new deploy is
+  // picked up immediately, fall back to the cache when offline
+  if (sameOrigin && url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      fetch(request)
+        .then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(RUNTIME_CACHE).then((c) => c.put(request, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }

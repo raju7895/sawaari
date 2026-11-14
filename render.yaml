@@ -48,6 +48,10 @@ services:
         sync: false
       - key: APP_URL
         sync: false
+      # The origin of the static site — the CORS allowlist is built from it.
+      # Without it the API accepts any origin (it says so in the log).
+      - key: FRONTEND_URL
+        sync: false
       - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET
@@ -65,7 +69,14 @@ services:
     staticPublishPath: ./web/dist
     # vite/tailwind are devDependencies — without --include=dev this build
     # fails with "vite is not recognized"
-    buildCommand: cd web && npm ci --include=dev && VITE_API_URL=https://sawaari-api.onrender.com npm run build
+    buildCommand: cd web && npm ci --include=dev && npm run build
+    # VITE_API_URL is read at BUILD time. It must be the real address of the
+    # API service above (no trailing slash). It is deliberately NOT written
+    # into the build command: a hardcoded hostname silently breaks the whole
+    # front end as soon as the service is renamed.
+    envVars:
+      - key: VITE_API_URL
+        sync: false
     routes:
       - type: rewrite
         source: /*
