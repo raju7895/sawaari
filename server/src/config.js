@@ -113,11 +113,28 @@ if (config.env === 'production') {
   ];
   for (const [key, value, devDefault, minLength] of WEAK) {
     if (!value || value === devDefault || value.length < minLength) {
-      throw new Error(
-        `Refusing to start in production: ${key} is missing, still the published ` +
-        `development default, or shorter than ${minLength} characters. ` +
-        `Set it in the environment (openssl rand -hex 32).`
-      );
+      /* Print it as a block: this is the first thing anyone sees in the
+         Render log when a deploy comes up empty. */
+      const message = [
+        '',
+        '  ════════════════════════════════════════════════════════════════',
+        `  ✖ ${key} is missing, still the published development default,`,
+        `    or shorter than ${minLength} characters.`,
+        '',
+        '    The API refuses to start: with a public secret anybody could',
+        '    sign their own admin token or decrypt the stored 2FA secrets.',
+        '',
+        '    FIX (Render → the API service → Environment):',
+        `      ${key} = a random value of at least ${minLength} characters`,
+        '',
+        '    Generate one with:',
+        `      node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
+        '',
+        '  ════════════════════════════════════════════════════════════════',
+        '',
+      ].join('\n');
+      console.error(message);
+      throw new Error(`${key} is not set to a strong production value.`);
     }
   }
 }
