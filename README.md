@@ -67,6 +67,22 @@ Create the user in **Supabase → Authentication → Users → Add user** (tick
 update public.profiles set role = 'admin' where email = 'your-admin-email@example.com';
 ```
 
+> **Create the account in the dashboard, never with `insert into
+> auth.users`.** A row that is put into `auth.users` by hand is missing the
+> `auth.identities` row, the `instance_id` and a few token columns that GoTrue
+> expects to be present, and the sign-in is refused with *Invalid login
+> credentials* — with no hint of what is wrong. The dashboard does it
+> correctly.
+
+Two things worth checking before you invite anybody:
+
+* **Authentication → Rate Limits → Emails.** The default limit is low, and
+  once it is reached every sign-up and every password reset answers *429
+  email rate limit exceeded*.
+* **Authentication → SMTP.** The built-in mailer only delivers to the
+  members of your project team. For real riders and drivers, add an SMTP
+  provider.
+
 ---
 
 ## Deploying
@@ -149,6 +165,9 @@ installation.
 | `scripts/verify-render-build.js` | clones the repository and builds it exactly as Render does, then inspects the bundle |
 | `scripts/deploy-render.js` | manages the static site through the Render API (`RENDER_API_KEY`) |
 | `scripts/check-imports.js` | proves that a file is imported by nothing before you delete it |
+| `scripts/check-hooks.js` | a React hook that is used but never imported — a crash on that screen only |
+| `scripts/check-free-variables.js` | an identifier that is used but never declared — the same kind of crash |
+| `scripts/check-api.js` | runs every PostgREST select the app makes against the live project — a broken embed is a 4xx, not a build error |
 | `scripts/build-all.js` | builds the web app, the APK and the Windows installer |
 
 ---

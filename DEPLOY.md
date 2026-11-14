@@ -38,7 +38,32 @@ node scripts/verify-render-build.js
 
 # the project audit
 node scripts/audit-project.js
+
+# a React hook used but never imported, and an identifier used but never declared
+cd web && node ../scripts/check-hooks.js && node ../scripts/check-free-variables.js
+
+# every select the app makes, against the live project
+# (the credentials come from the environment, never from the repository)
+$env:VITE_SUPABASE_URL = "https://<project-ref>.supabase.co"
+$env:VITE_SUPABASE_ANON_KEY = "sb_publishable_..."
+$env:SAWAARI_TEST_EMAIL = "you@example.com"
+$env:SAWAARI_TEST_PASSWORD = "..."
+node scripts/check-api.js
 ```
+
+### The two settings that stop people signing up
+
+Both are in **Supabase → Authentication** and both fail silently, with an
+error the visitor never sees:
+
+| Setting | What happens when it is wrong |
+|---|---|
+| **Rate Limits → Emails** | *429 email rate limit exceeded* — no sign-up, no password reset |
+| **Providers → SMTP** | the built-in mailer only delivers to your own team members; everybody else gets nothing |
+
+Create the administrator in **Authentication → Users → Add user**, not with
+`insert into auth.users` — a row written by hand has no `auth.identities`
+row and GoTrue refuses the sign-in with *Invalid login credentials*.
 
 ## 5. What must never be committed
 
