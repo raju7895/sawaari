@@ -822,7 +822,15 @@ create policy driver_documents_write on storage.objects for insert to authentica
 
 drop policy if exists driver_documents_delete on storage.objects;
 create policy driver_documents_delete on storage.objects for delete to authenticated
-  using (bucket_id = 'driver-documents' and owner_id = auth.uid()::text);
+  using (bucket_id = 'driver-documents'
+         and (owner_id = auth.uid()::text or public.is_admin()));
+
+-- an administrator may remove any stored file (a photo that should not be
+-- there, a document that was sent by mistake) - the owner may remove their
+-- own. Without this an orphaned file can only be removed from the dashboard.
+drop policy if exists storage_admin_delete on storage.objects;
+create policy storage_admin_delete on storage.objects for delete to authenticated
+  using (public.is_admin());
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 8.  REALTIME — the live ride board

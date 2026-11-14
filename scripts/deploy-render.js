@@ -97,7 +97,9 @@ async function main() {
         branch: 'main',
         autoDeploy: true,
         rootDir: 'web',
-        buildCommand: 'npm install && npm run build',
+        // --include=dev is required: if NODE_ENV=production is set, npm skips
+        // devDependencies and the build fails with "vite is not recognized"
+        buildCommand: 'npm install --include=dev && npm run build',
         staticPublishPath: './dist',
         envVars: wanted,
         routes: [{ type: 'rewrite', source: '/*', destination: '/index.html' }],
