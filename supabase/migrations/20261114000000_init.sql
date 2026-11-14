@@ -1699,6 +1699,580 @@ begin
 end $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
+-- 11b. ADMINISTRATOR ACTIONS
+--      The privileged writes of the master console. Each one checks the
+--      permission, performs the change, writes the audit entry and returns
+--      a small JSON object — the shape the console already expects.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ── users ────────────────────────────────────────────────────────────────
+create or replace function public.admin_set_user_blocked(
+  p_user_id uuid, p_blocked boolean, p_reason text default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('users.block') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to block accounts.');
+  end if;
+
+  update public.profiles
+     set is_active = not p_blocked,
+         blocked_reason = case when p_blocked then p_reason else null end
+   where id = p_user_id;
+
+  if p_blocked then
+    insert into public.user_suspensions (user_id, kind, reason, starts_at, ends_at, created_by)
+    values (p_user_id, 'block', p_reason, now(), null, auth.uid());
+  else
+    update public.user_suspensions
+       set lifted_at = now(), lifted_by = auth.uid()
+     where user_id = p_user_id and lifted_at is null;
+  end if;
+
+  perform public.record_audit(
+    case when p_blocked then 'user.block' else 'user.unblock' end, 'users',
+    'profile', p_user_id::text, jsonb_build_object('reason', p_reason));
+
+  return jsonb_build_object('ok', true,
+    'message', case when p_blocked then 'Account blocked.' else 'Account unblocked.' end);
+end $$;
+
+create or replace function public.admin_set_user_suspended(
+  p_user_id uuid, p_suspend boolean, p_reason text default null, p_hours int default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('users.suspend') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to suspend accounts.');
+  end if;
+
+  if p_suspend then
+    insert into public.user_suspensions (user_id, kind, reason, starts_at, ends_at, created_by)
+    values (p_user_id, 'suspend', p_reason, now(),
+            case when p_hours is null then null else now() + make_interval(hours => p_hours) end,
+            auth.uid());
+  else
+    update public.user_suspensions
+       set lifted_at = now(), lifted_by = auth.uid()
+     where user_id = p_user_id and lifted_at is null;
+  end if;
+
+  perform public.record_audit(
+    case when p_suspend then 'user.suspend' else 'user.reactivate' end, 'users',
+    'profile', p_user_id::text, jsonb_build_object('reason', p_reason, 'hours', p_hours));
+
+  return jsonb_build_object('ok', true,
+    'message', case when p_suspend then 'Account suspended.' else 'Account reactivated.' end);
+end $$;
+
+create or replace function public.admin_deactivate_user(p_user_id uuid, p_reason text default null)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('users.deactivate') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to deactivate accounts.');
+  end if;
+
+  update public.profiles
+     set is_active = false, deactivated_at = now(), blocked_reason = p_reason
+   where id = p_user_id;
+
+  insert into public.user_suspensions (user_id, kind, reason, starts_at, created_by)
+  values (p_user_id, 'deactivate', p_reason, now(), auth.uid());
+
+  perform public.record_audit('user.deactivate', 'users', 'profile', p_user_id::text,
+                              jsonb_build_object('reason', p_reason));
+
+  return jsonb_build_object('ok', true, 'message', 'Account deactivated.');
+end $$;
+
+create or replace function public.admin_bulk_user_action(
+  p_user_ids uuid[], p_action text, p_reason text default null, p_hours int default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_id uuid; v_count int := 0;
+begin
+  if not public.has_permission('users.bulk') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to bulk-edit accounts.');
+  end if;
+
+  foreach v_id in array coalesce(p_user_ids, '{}') loop
+    if p_action = 'block' then
+      update public.profiles set is_active = false, blocked_reason = p_reason where id = v_id;
+      insert into public.user_suspensions (user_id, kind, reason, starts_at, created_by)
+      values (v_id, 'block', p_reason, now(), auth.uid());
+    elsif p_action = 'unblock' then
+      update public.profiles set is_active = true, blocked_reason = null where id = v_id;
+      update public.user_suspensions set lifted_at = now(), lifted_by = auth.uid()
+       where user_id = v_id and lifted_at is null;
+    elsif p_action = 'suspend' then
+      insert into public.user_suspensions (user_id, kind, reason, starts_at, ends_at, created_by)
+      values (v_id, 'suspend', p_reason, now(),
+              case when p_hours is null then null else now() + make_interval(hours => p_hours) end,
+              auth.uid());
+    elsif p_action = 'reactivate' then
+      update public.user_suspensions set lifted_at = now(), lifted_by = auth.uid()
+       where user_id = v_id and lifted_at is null;
+    end if;
+    v_count := v_count + 1;
+  end loop;
+
+  perform public.record_audit('user.bulk', 'users', 'profiles', null,
+    jsonb_build_object('action', p_action, 'count', v_count, 'reason', p_reason));
+
+  return jsonb_build_object('ok', true, 'count', v_count, 'message', v_count || ' accounts updated.');
+end $$;
+
+create or replace function public.admin_edit_user(p_user_id uuid, p_name text default null, p_email text default null)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('users.edit') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to edit accounts.');
+  end if;
+  update public.profiles
+     set name = coalesce(p_name, name), email = coalesce(p_email, email)
+   where id = p_user_id;
+  perform public.record_audit('user.edit', 'users', 'profile', p_user_id::text,
+    jsonb_build_object('name', p_name, 'email', p_email));
+  return jsonb_build_object('ok', true, 'message', 'Account updated.');
+end $$;
+
+-- ── drivers ──────────────────────────────────────────────────────────────
+create or replace function public.admin_review_driver(
+  p_driver_id uuid, p_approved boolean, p_reason text default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('drivers.verify') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to verify drivers.');
+  end if;
+
+  update public.driver_profiles
+     set verification_status = case when p_approved then 'approved' else 'rejected' end,
+         rejection_reason = case when p_approved then null else p_reason end,
+         reviewed_by = auth.uid(), reviewed_at = now()
+   where id = p_driver_id;
+
+  perform public.record_audit(
+    case when p_approved then 'driver.approve' else 'driver.reject' end, 'drivers',
+    'driver_profile', p_driver_id::text, jsonb_build_object('reason', p_reason));
+
+  return jsonb_build_object('ok', true,
+    'message', case when p_approved then 'Driver approved.' else 'Driver rejected.' end);
+end $$;
+
+create or replace function public.admin_review_document(
+  p_document_id uuid, p_status text, p_note text default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('drivers.verify') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to review documents.');
+  end if;
+  if p_status not in ('verified', 'rejected') then
+    return jsonb_build_object('ok', false, 'error', 'Unknown document status.');
+  end if;
+
+  update public.driver_documents
+     set status = p_status, review_note = p_note, reviewed_by = auth.uid(), reviewed_at = now()
+   where id = p_document_id;
+
+  perform public.record_audit('driver.document_review', 'drivers', 'driver_document',
+    p_document_id::text, jsonb_build_object('status', p_status, 'note', p_note));
+
+  return jsonb_build_object('ok', true, 'message', 'Document ' || p_status || '.');
+end $$;
+
+create or replace function public.admin_verify_upi(p_driver_id uuid, p_verified boolean)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('drivers.manage') and not public.has_permission('drivers.verify') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to verify UPI ids.');
+  end if;
+  update public.driver_profiles set upi_verified = p_verified where id = p_driver_id;
+  perform public.record_audit('driver.upi_verify', 'drivers', 'driver_profile', p_driver_id::text,
+    jsonb_build_object('verified', p_verified));
+  return jsonb_build_object('ok', true, 'message',
+    case when p_verified then 'UPI verified.' else 'UPI verification removed.' end);
+end $$;
+
+create or replace function public.admin_suspend_driver(
+  p_driver_id uuid, p_suspend boolean, p_reason text default null, p_hours int default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('drivers.manage') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to suspend drivers.');
+  end if;
+
+  update public.driver_profiles
+     set is_online = case when p_suspend then false else is_online end
+   where id = p_driver_id;
+
+  update public.profiles set is_active = not p_suspend where id =
+    (select user_id from public.driver_profiles where id = p_driver_id);
+
+  if p_suspend then
+    insert into public.user_suspensions (user_id, kind, reason, starts_at, ends_at, created_by)
+    select user_id, 'suspend', p_reason, now(),
+           case when p_hours is null then null else now() + make_interval(hours => p_hours) end,
+           auth.uid()
+      from public.driver_profiles where id = p_driver_id;
+  else
+    update public.user_suspensions s
+       set lifted_at = now(), lifted_by = auth.uid()
+      from public.driver_profiles dp
+     where s.user_id = dp.user_id and dp.id = p_driver_id and s.lifted_at is null;
+  end if;
+
+  perform public.record_audit(
+    case when p_suspend then 'driver.suspend' else 'driver.reinstate' end, 'drivers',
+    'driver_profile', p_driver_id::text, jsonb_build_object('reason', p_reason));
+
+  return jsonb_build_object('ok', true,
+    'message', case when p_suspend then 'Driver suspended.' else 'Driver reinstated.' end);
+end $$;
+
+create or replace function public.admin_update_vehicle(
+  p_vehicle_id uuid, p_registration_number text default null, p_vehicle_type text default null,
+  p_model text default null, p_capacity int default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('drivers.manage') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to edit vehicles.');
+  end if;
+  update public.vehicles
+     set registration_number = coalesce(p_registration_number, registration_number),
+         vehicle_type = coalesce(p_vehicle_type, vehicle_type),
+         model = coalesce(p_model, model),
+         capacity = coalesce(p_capacity, capacity)
+   where id = p_vehicle_id;
+  perform public.record_audit('driver.vehicle_update', 'drivers', 'vehicle', p_vehicle_id::text,
+    jsonb_build_object('registrationNumber', p_registration_number, 'model', p_model));
+  return jsonb_build_object('ok', true, 'message', 'Vehicle updated.');
+end $$;
+
+-- ── payments, refunds, settlements ───────────────────────────────────────
+create or replace function public.admin_verify_payment(
+  p_payment_id uuid, p_verified boolean, p_reason text default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('payments.verify') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to verify payments.');
+  end if;
+
+  update public.payments
+     set status = case when p_verified then 'paid' else 'failed' end,
+         verified_by = auth.uid(), verified_at = now(),
+         failure_reason = case when p_verified then null else p_reason end
+   where id = p_payment_id;
+
+  update public.bookings
+     set payment_status = case when p_verified then 'paid' else 'unpaid' end
+   where id = (select booking_id from public.payments where id = p_payment_id);
+
+  perform public.record_audit(
+    case when p_verified then 'payment.verify' else 'payment.reject' end, 'payments',
+    'payment', p_payment_id::text, jsonb_build_object('reason', p_reason));
+
+  return jsonb_build_object('ok', true,
+    'message', case when p_verified then 'Payment verified.' else 'Payment rejected.' end);
+end $$;
+
+create or replace function public.admin_refund_payment(
+  p_payment_id uuid, p_amount numeric, p_reason text
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_payment public.payments%rowtype; v_refund uuid;
+begin
+  if not public.has_permission('payments.refund') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to issue refunds.');
+  end if;
+
+  select * into v_payment from public.payments where id = p_payment_id for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'Payment not found.'); end if;
+
+  insert into public.refunds (payment_id, booking_id, amount, reason, method, status, initiated_by)
+  values (v_payment.id, v_payment.booking_id, p_amount, p_reason,
+          case when v_payment.method = 'online' then 'razorpay' else 'manual' end,
+          'pending', auth.uid())
+  returning id into v_refund;
+
+  update public.payments set status = 'refunded', refunded_amount = p_amount where id = p_payment_id;
+
+  perform public.record_audit('payment.refund', 'payments', 'payment', p_payment_id::text,
+    jsonb_build_object('amount', p_amount, 'reason', p_reason, 'refundId', v_refund));
+
+  return jsonb_build_object('ok', true, 'refundId', v_refund, 'message', 'Refund created.');
+end $$;
+
+create or replace function public.admin_complete_refund(p_refund_id uuid, p_notes text default null)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('payments.refund') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to settle refunds.');
+  end if;
+  update public.refunds
+     set status = 'completed', completed_at = now(), notes = coalesce(p_notes, notes),
+         approved_by = auth.uid()
+   where id = p_refund_id;
+  perform public.record_audit('refund.complete', 'payments', 'refund', p_refund_id::text,
+    jsonb_build_object('notes', p_notes));
+  return jsonb_build_object('ok', true, 'message', 'Refund marked as settled.');
+end $$;
+
+create or replace function public.admin_create_settlement(
+  p_driver_profile_id uuid, p_period_start date, p_period_end date
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_gross numeric; v_comm numeric; v_net numeric; v_rides int; v_id uuid;
+begin
+  if not public.has_permission('finance.settings') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to create settlements.');
+  end if;
+
+  select coalesce(sum(gross),0), coalesce(sum(commission),0), coalesce(sum(net),0), count(*)
+    into v_gross, v_comm, v_net, v_rides
+    from public.driver_earnings e
+    join public.bookings b on b.id = e.booking_id
+   where e.driver_profile_id = p_driver_profile_id
+     and b.completed_at::date between p_period_start and p_period_end;
+
+  insert into public.settlements
+    (driver_profile_id, period_start, period_end, gross, commission, net, rides, created_by)
+  values (p_driver_profile_id, p_period_start, p_period_end, v_gross, v_comm, v_net, v_rides, auth.uid())
+  returning id into v_id;
+
+  perform public.record_audit('settlement.create', 'finance', 'settlement', v_id::text,
+    jsonb_build_object('driverProfileId', p_driver_profile_id, 'gross', v_gross, 'rides', v_rides));
+
+  return jsonb_build_object('ok', true, 'settlementId', v_id, 'message', 'Settlement created.');
+end $$;
+
+create or replace function public.admin_mark_settlement_paid(p_settlement_id uuid, p_reference text default null)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('finance.settings') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to pay settlements.');
+  end if;
+  update public.settlements
+     set status = 'paid', paid_at = now(), reference = coalesce(p_reference, reference)
+   where id = p_settlement_id;
+  perform public.record_audit('settlement.paid', 'finance', 'settlement', p_settlement_id::text,
+    jsonb_build_object('reference', p_reference));
+  return jsonb_build_object('ok', true, 'message', 'Settlement marked as paid.');
+end $$;
+
+create or replace function public.admin_set_commission(p_percent numeric)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('finance.settings') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to change the commission.');
+  end if;
+  insert into public.platform_settings (key, value, category, updated_by)
+  values ('finance', jsonb_build_object('commissionPercent', p_percent), 'finance', auth.uid())
+  on conflict (key) do update set value = excluded.value, updated_at = now(), updated_by = auth.uid();
+  perform public.record_audit('finance.commission', 'finance', 'settings', 'finance',
+    jsonb_build_object('commissionPercent', p_percent));
+  return jsonb_build_object('ok', true, 'message', 'Commission updated.');
+end $$;
+
+-- ── reports, SOS ─────────────────────────────────────────────────────────
+create or replace function public.admin_resolve_report(
+  p_report_id uuid, p_status text, p_note text default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('reports.investigate') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to resolve reports.');
+  end if;
+  update public.user_reports
+     set status = p_status, resolution_note = coalesce(p_note, resolution_note), resolved_by = auth.uid()
+   where id = p_report_id;
+  perform public.record_audit('report.resolve', 'reports', 'user_report', p_report_id::text,
+    jsonb_build_object('status', p_status, 'note', p_note));
+  return jsonb_build_object('ok', true, 'message', 'Report ' || p_status || '.');
+end $$;
+
+create or replace function public.admin_investigate_report(
+  p_report_id uuid, p_action text, p_note text default null,
+  p_assign_to uuid default null, p_evidence jsonb default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('reports.investigate') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to investigate reports.');
+  end if;
+
+  insert into public.report_investigations (report_id, admin_id, admin_email, action, note, evidence)
+  values (p_report_id, auth.uid(),
+          (select email from public.profiles where id = auth.uid()),
+          p_action, p_note, p_evidence);
+
+  if p_action = 'assign' and p_assign_to is not null then
+    update public.user_reports set status = 'reviewing' where id = p_report_id;
+  end if;
+
+  perform public.record_audit('report.' || p_action, 'reports', 'user_report', p_report_id::text,
+    jsonb_build_object('note', p_note, 'assignTo', p_assign_to));
+
+  return jsonb_build_object('ok', true, 'message', 'Investigation note added.');
+end $$;
+
+create or replace function public.admin_sos_action(p_alert_id uuid, p_action text)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('reports.view') then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to handle SOS alerts.');
+  end if;
+  if p_action = 'ack' then
+    update public.sos_alerts set status = 'acknowledged', acknowledged_by = auth.uid() where id = p_alert_id;
+  else
+    update public.sos_alerts set status = 'resolved' where id = p_alert_id;
+  end if;
+  perform public.record_audit('sos.' || p_action, 'reports', 'sos_alert', p_alert_id::text);
+  return jsonb_build_object('ok', true, 'message', 'SOS alert updated.');
+end $$;
+
+-- ── admin accounts ───────────────────────────────────────────────────────
+create or replace function public.admin_suspend_admin(
+  p_user_id uuid, p_suspend boolean, p_reason text default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('admins.suspend') and not public.is_super_admin() then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to suspend admins.');
+  end if;
+  update public.admin_profiles
+     set status = case when p_suspend then 'suspended' else 'active' end, notes = coalesce(p_reason, notes)
+   where user_id = p_user_id;
+  perform public.record_audit(
+    case when p_suspend then 'admin.suspend' else 'admin.reactivate' end, 'admins',
+    'admin_profile', p_user_id::text, jsonb_build_object('reason', p_reason));
+  return jsonb_build_object('ok', true,
+    'message', case when p_suspend then 'Administrator suspended.' else 'Administrator reactivated.' end);
+end $$;
+
+create or replace function public.admin_update_admin(
+  p_user_id uuid, p_admin_role text default null, p_permissions jsonb default null
+)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('admins.edit') and not public.is_super_admin() then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to change administrators.');
+  end if;
+  update public.admin_profiles
+     set admin_role = coalesce(p_admin_role, admin_role),
+         permissions = coalesce(p_permissions, permissions)
+   where user_id = p_user_id;
+  perform public.record_audit('admin.update', 'admins', 'admin_profile', p_user_id::text,
+    jsonb_build_object('adminRole', p_admin_role, 'permissions', p_permissions));
+  return jsonb_build_object('ok', true, 'message', 'Administrator updated.');
+end $$;
+
+create or replace function public.admin_remove_admin(p_user_id uuid)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('admins.remove') and not public.is_super_admin() then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to remove administrators.');
+  end if;
+  delete from public.admin_profiles where user_id = p_user_id;
+  perform public.record_audit('admin.remove', 'admins', 'admin_profile', p_user_id::text);
+  return jsonb_build_object('ok', true, 'message', 'Administrator access removed.');
+end $$;
+
+create or replace function public.admin_reset_admin_2fa(p_user_id uuid)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.has_permission('admins.edit') and not public.is_super_admin() then
+    return jsonb_build_object('ok', false, 'error', 'Your role is not allowed to reset two-factor authentication.');
+  end if;
+  update public.admin_profiles set twofa_enabled = false where user_id = p_user_id;
+  perform public.record_audit('admin.2fa_reset', 'admins', 'admin_profile', p_user_id::text);
+  return jsonb_build_object('ok', true, 'message', 'Two-factor enrolment reset.');
+end $$;
+
+-- ── the analytics the master dashboard shows ─────────────────────────────
+create or replace function public.admin_analytics(p_days int default 30)
+returns jsonb language sql stable security definer set search_path = public, pg_temp as $$
+  with days as (
+    select generate_series((now() - make_interval(days => p_days))::date, current_date, '1 day')::date as d
+  )
+  select jsonb_build_object(
+    'daily', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'date', d.d,
+               'bookings', (select count(*) from public.bookings b where b.created_at::date = d.d),
+               'revenue',  (select coalesce(sum(net),0) from public.driver_earnings e where e.created_at::date = d.d),
+               'users',     (select count(*) from public.profiles p where p.created_at::date = d.d)
+             ) order by d.d)
+      from days d
+    ), '[]'::jsonb),
+    'paymentSplit', coalesce((
+      select jsonb_object_agg(p.method, p.total) from (
+        select method, count(*) as total from public.payments group by method) p
+    ), '{}'::jsonb),
+    'cityStats', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'cityId', c.id, 'city', c.name,
+               'bookings', (select count(*) from public.bookings b where b.city_id = c.id)
+             ))
+      from public.cities c
+    ), '[]'::jsonb),
+    'topDrivers', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'driverProfileId', dp.id, 'name', p.name,
+               'rides', dp.rides_completed, 'earnings', dp.total_earnings
+             ) order by dp.total_earnings desc)
+      from (select * from public.driver_profiles order by total_earnings desc limit 10) dp
+      join public.profiles p on p.id = dp.user_id
+    ), '[]'::jsonb)
+  );
+$$;
+
+-- ── the revenue view ─────────────────────────────────────────────────────
+create or replace function public.admin_revenue(p_range text default 'month')
+returns jsonb language sql stable security definer set search_path = public, pg_temp as $$
+  with span as (
+    select case p_range
+             when 'day'   then current_date
+             when 'week'  then current_date - 6
+             when 'month' then current_date - 29
+             else current_date - 89 end as since
+  )
+  select jsonb_build_object(
+    'totals', jsonb_build_object(
+      'gross',    (select coalesce(sum(gross),0) from public.driver_earnings, span where created_at::date >= span.since),
+      'commission',(select coalesce(sum(commission),0) from public.driver_earnings, span where created_at::date >= span.since),
+      'net',      (select coalesce(sum(net),0) from public.driver_earnings, span where created_at::date >= span.since),
+      'rides',    (select count(*) from public.driver_earnings, span where created_at::date >= span.since),
+      'pendingPayments', (select count(*) from public.payments where status <> 'paid')),
+    'byDay', coalesce((
+      select jsonb_agg(jsonb_build_object('date', d, 'net', n.net, 'rides', n.rides) order by d)
+      from (
+        select created_at::date as d, sum(net) as net, count(*) as rides
+          from public.driver_earnings group by 1) n
+    ), '[]'::jsonb),
+    'methods', coalesce((
+      select jsonb_agg(jsonb_build_object('method', method, 'count', total, 'amount', amount))
+      from (select method, count(*) as total, coalesce(sum(amount),0) as amount
+              from public.payments group by method) m
+    ), '[]'::jsonb),
+    'drivers', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'driverProfileId', dp.id, 'name', p.name,
+               'rides', dp.rides_completed, 'gross', dp.total_earnings
+             ) order by dp.total_earnings desc)
+      from public.driver_profiles dp join public.profiles p on p.id = dp.user_id
+    ), '[]'::jsonb),
+    'cashRecords', coalesce((
+      select jsonb_agg(to_jsonb(pay)) from public.payments pay where pay.method = 'cash'
+    ), '[]'::jsonb)
+  );
+$$;
+
+-- ═══════════════════════════════════════════════════════════════════════════
 -- 12.  GRANTS
 -- ═══════════════════════════════════════════════════════════════════════════
 

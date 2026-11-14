@@ -503,15 +503,525 @@ function mapBooking(row) {
   };
 }
 
+/* ── the administrator console ─────────────────────────────────────────
+   The master console runs on Supabase as well. Reads use the admin
+   policies (the permission is checked by RLS), writes go through the
+   SECURITY DEFINER RPCs so every change is audited.                     */
+async function routeAdmin(method, url, body, query) {
+  const m = method.toLowerCase();
+  const rpc = async (name, args) => {
+    const { data, error } = await supabase.rpc(name, args);
+    if (error) fail(error);
+    if (data && data.ok === false) fail(new ApiError(data.error || 'Not allowed.', 403, data));
+    return data;
+  };
+  const count = async (table, build) => {
+    const q = supabase.from(table).select('*', { count: 'exact' });
+    build(q);
+    const { data, error, count } = await q;
+    if (error) fail(error);
+    return { data: data || [], total: count ?? (data || []).length };
+  };
+
+  /* ── users ── */
+  if (m === 'get' && url === '/api/admin/users') {
+    let q = supabase.from('profiles').select('*, driver_profiles(*), passenger_profiles(*)', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .limit(Number(query.limit) || 50)
+      .offset(Number(query.offset) || 0);
+    if (query.q) q = q.or(`name.ilike.%${query.q}%,email.ilike.%${query.q}%`);
+    if (query.roleF) q = q.eq('role', query.roleF);
+    if (query.blocked === 'true') q = q.eq('is_active', false);
+    if (query.blocked === 'false') q = q.eq('is_active', true);
+    const { data, error, count } = await q;
+    if (error) fail(error);
+    return ok({
+      users: (data || []).map(mapUser),
+      total: count ?? (data || []).length,
+    });
+  }
+  if (m === 'get' && /^\/api\/admin\/users\/[0-9a-f-]{36}$/.test(url)) {
+    const id = url.split('/').pop();
+    const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+    if (error) fail(error);
+    const [bookings, payments, reports, suspensions, notifications] = await Promise.all([
+      supabase.from('bookings').select('*').eq('passenger_id', id).order('created_at', { ascending: false }).limit(20),
+      supabase.from('payments').select('*').eq('passenger_id', id).order('created_at', { ascending: false }).limit(20),
+      supabase.from('user_reports').select('*').or(`reporter_id.eq.${id},against_user_id.eq.${id}`),
+      supabase.from('user_suspensions').select('*').eq('user_id', id).order('created_at', { ascending: false }),
+      supabase.from('notifications').select('*').eq('user_id', id).order('created_at', { ascending: false }).limit(20),
+    ]);
+    return ok({
+      ...mapUser(profile),
+      bookings: (bookings.data || []).map(mapBooking),
+      payments: payments.data || [],
+      reports: reports.data || [],
+      suspensions: suspensions.data || [],
+      notifications: notifications.data || [],
+    });
+  }
+  if (m === 'post' && url === '/api/admin/users/bulk') {
+    const r = await rpc('admin_bulk_user_action', {
+      p_user_ids: body.userIds, p_action: body.action, p_reason: body.reason, p_hours: body.hours ?? null,
+    });
+    return ok({ message: r.message, count: r.count });
+  }
+  const userAction = url.match(/^\/api\/admin\/users\/([0-9a-f-]{36})\/(block|suspend|deactivate)$/);
+  if (m === 'post' && userAction) {
+    const [, id, action] = userAction;
+    if (action === 'block') {
+      const r = await rpc('admin_set_user_blocked', { p_user_id: id, p_blocked: body.blocked !== false, p_reason: body.reason ?? null });
+      return ok({ message: r.message });
+    }
+    if (action === 'suspend') {
+      const r = await rpc('admin_set_user_suspended', {
+        p_user_id: id, p_suspend: body.suspend !== false, p_reason: body.reason ?? null, p_hours: body.hours ?? null,
+      });
+      return ok({ message: r.message });
+    }
+    const r = await rpc('admin_deactivate_user', { p_user_id: id, p_reason: body.reason ?? null });
+    return ok({ message: r.message });
+  }
+  if (m === 'patch' && /^\/api\/admin\/users\/[0-9a-f-]{36}$/.test(url)) {
+    const id = url.split('/').pop();
+    const r = await rpc('admin_edit_user', { p_user_id: id, p_name: body.name ?? null, p_email: body.email ?? null });
+    return ok({ message: r.message });
+  }
+
+  /* ── drivers ── */
+  if (m === 'get' && url === '/api/admin/drivers') {
+    let q = supabase.from('driver_profiles').select('*, profiles!driver_profiles_user_id_fkey(*)', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .limit(Number(query.limit) || 50).offset(Number(query.offset) || 0);
+    if (query.status) q = q.eq('verification_status', query.status);
+    const { data, error, count } = await q;
+    if (error) fail(error);
+    const drivers = await Promise.all((data || []).map(async (d) => {
+      const user = Array.isArray(d.profiles) ? d.profiles[0] : d.profiles;
+      const { data: vehicle } = await supabase.from('vehicles').select('*').eq('driver_profile_id', d.id).maybeSingle();
+      return {
+        id: d.id, userId: d.user_id, name: user?.name || '', phone: user?.phone || '', email: user?.email || '',
+        verificationStatus: d.verification_status, rejectionReason: d.rejection_reason,
+        isOnline: d.is_online, isActive: user?.is_active ?? true,
+        ratingAvg: d.rating_avg, ratingCount: d.rating_count,
+        ridesCompleted: d.rides_completed, totalEarnings: d.total_earnings,
+        upiId: d.upi_id, upiVerified: d.upi_verified,
+        vehicle: vehicle ? mapVehicle(vehicle) : null,
+        createdAt: d.created_at,
+      };
+    }));
+    return ok({ drivers, total: count ?? drivers.length });
+  }
+  if (m === 'get' && /^\/api\/admin\/drivers\/[0-9a-f-]{36}$/.test(url)) {
+    const id = url.split('/').pop();
+    const { data: driver, error } = await supabase.from('driver_profiles').select('*').eq('id', id).maybeSingle();
+    if (error) fail(error);
+    const { data: user } = await supabase.from('profiles').select('*').eq('id', driver?.user_id).maybeSingle();
+    const { data: vehicle } = await supabase.from('vehicles').select('*').eq('driver_profile_id', id).maybeSingle();
+    const { data: documents } = await supabase.from('driver_documents').select('*').eq('driver_profile_id', id);
+    const { data: earnings } = await supabase.from('driver_earnings').select('*').eq('driver_profile_id', id);
+    const { data: rides } = await supabase.from('bookings').select('*').eq('driver_profile_id', id)
+      .order('created_at', { ascending: false }).limit(10);
+    return ok({
+      id: driver.id, userId: driver.user_id, name: user?.name || '', phone: user?.phone || '',
+      email: user?.email || '', verificationStatus: driver.verification_status,
+      rejectionReason: driver.rejection_reason, isOnline: driver.is_online,
+      ratingAvg: driver.rating_avg, ratingCount: driver.rating_count,
+      ridesCompleted: driver.rides_completed, totalEarnings: driver.total_earnings,
+      upiId: driver.upi_id, upiVerified: driver.upi_verified, isActive: user?.is_active ?? true,
+      vehicle: vehicle ? mapVehicle(vehicle) : null,
+      documents: (documents || []).map(mapDocument),
+      earnings: earnings || [],
+      recentRides: (rides || []).map(mapBooking),
+      createdAt: driver.created_at,
+    });
+  }
+  const driverAction = url.match(/^\/api\/admin\/drivers\/([0-9a-f-]{36})\/(approve|reject|suspend|verify-upi)$/);
+  if (m === 'post' && driverAction) {
+    const [, id, action] = driverAction;
+    if (action === 'approve' || action === 'reject') {
+      const r = await rpc('admin_review_driver', {
+        p_driver_id: id, p_approved: action === 'approve', p_reason: body.reason ?? null,
+      });
+      return ok({ message: r.message });
+    }
+    if (action === 'suspend') {
+      const r = await rpc('admin_suspend_driver', {
+        p_driver_id: id, p_suspend: body.suspend !== false, p_reason: body.reason ?? null, p_hours: body.hours ?? null,
+      });
+      return ok({ message: r.message });
+    }
+    const r = await rpc('admin_verify_upi', { p_driver_id: id, p_verified: body.verified !== false });
+    return ok({ message: r.message });
+  }
+  if (m === 'put' && /^\/api\/admin\/drivers\/[0-9a-f-]{36}\/vehicle$/.test(url)) {
+    const id = url.split('/')[4];
+    const { data: driver } = await supabase.from('driver_profiles').select('id').eq('user_id', id).maybeSingle();
+    const { data: vehicle } = await supabase.from('vehicles').select('id').eq('driver_profile_id', driver?.id || '').maybeSingle();
+    const r = await rpc('admin_update_vehicle', {
+      p_vehicle_id: vehicle?.id || null,
+      p_registration_number: body.registrationNumber ?? null,
+      p_vehicle_type: body.vehicleType ?? null,
+      p_model: body.model ?? null,
+      p_capacity: body.capacity ?? null,
+    });
+    return ok({ message: r.message });
+  }
+  if (m === 'post' && /^\/api\/admin\/documents\/[0-9a-f-]{36}\/review$/.test(url)) {
+    const id = url.split('/')[4];
+    const r = await rpc('admin_review_document', { p_document_id: id, p_status: body.status, p_note: body.note ?? null });
+    return ok({ message: r.message });
+  }
+
+  /* ── bookings ── */
+  if (m === 'get' && url === '/api/admin/bookings') {
+    let q = supabase.from('bookings').select('*, profiles!bookings_passenger_id_fkey(name, phone)', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .limit(Number(query.limit) || 50).offset(Number(query.offset) || 0);
+    if (query.status) q = q.eq('status', query.status);
+    if (query.cityId) q = q.eq('city_id', query.cityId);
+    const { data, error, count } = await q;
+    if (error) fail(error);
+    return ok({ bookings: (data || []).map(mapBooking), total: count ?? (data || []).length });
+  }
+  if (m === 'get' && url === '/api/admin/bookings/live') {
+    const { data, error } = await supabase.from('bookings').select('*')
+      .in('status', ['searching', 'assigned', 'arriving', 'arrived', 'in_progress'])
+      .order('created_at', { ascending: false });
+    if (error) fail(error);
+    const counts = {};
+    (data || []).forEach((b) => { counts[b.status] = (counts[b.status] || 0) + 1; });
+    return ok({ live: (data || []).map(mapBooking), counts });
+  }
+  if (m === 'post' && /^\/api\/admin\/bookings\/[0-9a-f-]{36}\/cancel$/.test(url)) {
+    const id = url.split('/')[4];
+    const r = await rpc('cancel_booking', { p_booking_id: id, p_reason: body.reason || 'Cancelled by an administrator' });
+    return ok({ message: 'Booking cancelled.' });
+  }
+
+  /* ── payments ── */
+  if (m === 'get' && url === '/api/admin/payments') {
+    let q = supabase.from('payments').select('*, bookings!payments_booking_id_fkey(ref)', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .limit(Number(query.limit) || 50).offset(Number(query.offset) || 0);
+    if (query.status) q = q.eq('status', query.status);
+    if (query.method) q = q.eq('method', query.method);
+    const { data, error, count } = await q;
+    if (error) fail(error);
+    const totals = (data || []).reduce((t, p) => {
+      t.total = Number(t.total || 0) + Number(p.amount || 0);
+      t.count = Number(t.count || 0) + 1;
+      return t;
+    }, { total: 0, count: 0 });
+    return ok({ payments: data || [], total: count ?? (data || []).length, totals });
+  }
+  const paymentAction = url.match(/^\/api\/admin\/payments\/([0-9a-f-]{36})\/(verify|reject|refund)$/);
+  if (m === 'post' && paymentAction) {
+    const [, id, action] = paymentAction;
+    if (action === 'refund') {
+      const r = await rpc('admin_refund_payment', {
+        p_payment_id: id, p_amount: body.amount, p_reason: body.reason,
+      });
+      return ok({ refundId: r.refundId, message: r.message });
+    }
+    const r = await rpc('admin_verify_payment', {
+      p_payment_id: id, p_verified: action === 'verify', p_reason: body.reason ?? null,
+    });
+    return ok({ message: r.message });
+  }
+
+  /* ── cities, pricing, settings ── */
+  if (m === 'get' && url === '/api/admin/cities') {
+    const { data, error } = await supabase.from('cities').select('*, pricing_configs(*)').order('name');
+    if (error) fail(error);
+    return ok((data || []).map((c) => ({
+      id: c.id, name: c.name, state: c.state, centerLat: c.center_lat, centerLng: c.center_lng,
+      radiusKm: c.radius_km, isActive: c.is_active,
+      pricing: (c.pricing_configs || []).map(mapPricing),
+    })));
+  }
+  if (m === 'post' && url === '/api/admin/cities') {
+    const { data, error } = await supabase.from('cities').insert({
+      name: body.name, state: body.state ?? null,
+      center_lat: body.centerLat, center_lng: body.centerLng, radius_km: body.radiusKm ?? 25,
+    }).select().single();
+    if (error) fail(error);
+    await rpc('record_audit', { p_action: 'city.create', p_category: 'cities', p_target_type: 'city', p_target_id: data.id });
+    return ok({ message: 'City added.' });
+  }
+  if (m === 'patch' && /^\/api\/admin\/cities\/[0-9a-f-]{36}$/.test(url)) {
+    const id = url.split('/').pop();
+    const { error } = await supabase.from('cities').update({ is_active: body.isActive }).eq('id', id);
+    if (error) fail(error);
+    await rpc('record_audit', { p_action: 'city.update', p_category: 'cities', p_target_type: 'city', p_target_id: id });
+    return ok({ message: 'City updated.' });
+  }
+  if (m === 'get' && url === '/api/admin/pricing') {
+    const { data, error } = await supabase.from('pricing_configs').select('*, cities(name)').order('city_id');
+    if (error) fail(error);
+    const { data: finance } = await supabase.from('platform_settings').select('value').eq('key', 'finance').maybeSingle();
+    return ok({
+      pricing: (data || []).map(mapPricing),
+      commissionPercent: Number(finance?.value?.commissionPercent ?? 0),
+    });
+  }
+  if (m === 'put' && /^\/api\/admin\/pricing\/[0-9a-f-]{36}$/.test(url)) {
+    const id = url.split('/').pop();
+    const patch = {};
+    if (body.baseFare !== undefined) patch.base_fare = body.baseFare;
+    if (body.perKm !== undefined) patch.per_km = body.perKm;
+    if (body.perMinute !== undefined) patch.per_minute = body.perMinute;
+    if (body.minFare !== undefined) patch.min_fare = body.minFare;
+    if (body.bookingFee !== undefined) patch.booking_fee = body.bookingFee;
+    if (body.waitingPerMin !== undefined) patch.waiting_per_min = body.waitingPerMin;
+    if (body.freeWaitMin !== undefined) patch.free_wait_min = body.freeWaitMin;
+    if (body.nightMultiplier !== undefined) patch.night_multiplier = body.nightMultiplier;
+    if (body.nightFromHour !== undefined) patch.night_from_hour = body.nightFromHour;
+    if (body.nightToHour !== undefined) patch.night_to_hour = body.nightToHour;
+    if (body.isActive !== undefined) patch.is_active = body.isActive;
+    const { error } = await supabase.from('pricing_configs').update(patch).eq('id', id);
+    if (error) fail(error);
+    await rpc('record_audit', { p_action: 'pricing.update', p_category: 'finance', p_target_type: 'pricing', p_target_id: id });
+    return ok({ message: 'Pricing updated.' });
+  }
+
+  /* ── analytics, dashboard, revenue ── */
+  if (m === 'get' && (url === '/api/admin/analytics' || url === '/api/master/analytics')) {
+    return ok(await rpc('admin_analytics', { p_days: 30 }));
+  }
+  if (m === 'get' && url === '/api/master/dashboard') {
+    return ok(await rpc('admin_dashboard', {}));
+  }
+  if (m === 'get' && url === '/api/master/revenue') {
+    return ok(await rpc('admin_revenue', { p_range: query.range || 'month' }));
+  }
+  if (m === 'get' && url === '/api/master/settlements') {
+    const { data, error } = await supabase.from('settlements').select('*').order('created_at', { ascending: false });
+    if (error) fail(error);
+    return ok({ settlements: data || [] });
+  }
+  if (m === 'post' && url === '/api/master/settlements') {
+    const r = await rpc('admin_create_settlement', {
+      p_driver_profile_id: body.driverProfileId, p_period_start: body.periodStart, p_period_end: body.periodEnd,
+    });
+    return ok({ message: r.message });
+  }
+  if (m === 'post' && /^\/api\/master\/settlements\/[0-9a-f-]{36}\/paid$/.test(url)) {
+    const id = url.split('/')[4];
+    const r = await rpc('admin_mark_settlement_paid', { p_settlement_id: id, p_reference: body.reference ?? null });
+    return ok({ message: r.message });
+  }
+  if (m === 'get' && url === '/api/master/refunds') {
+    const { data, error } = await supabase.from('refunds').select('*, payments(*)').order('created_at', { ascending: false });
+    if (error) fail(error);
+    return ok({ refunds: data || [], gatewayConfigured: false });
+  }
+  if (m === 'post' && /^\/api\/master\/refunds\/[0-9a-f-]{36}\/complete$/.test(url)) {
+    const id = url.split('/')[4];
+    const r = await rpc('admin_complete_refund', { p_refund_id: id, p_notes: body.notes ?? null });
+    return ok({ message: r.message });
+  }
+  if (m === 'post' && url === '/api/master/finance/commission') {
+    const r = await rpc('admin_set_commission', { p_percent: body.percent });
+    return ok({ message: r.message });
+  }
+
+  /* ── reports, SOS, tickets ── */
+  if (m === 'get' && url === '/api/admin/sos') {
+    const { data, error } = await supabase.from('sos_alerts').select('*').order('created_at', { ascending: false });
+    if (error) fail(error);
+    return ok(data || []);
+  }
+  if (m === 'post' && /^\/api\/admin\/sos\/[0-9a-f-]{36}\/(ack|resolve)$/.test(url)) {
+    const [, id, action] = url.match(/^\/api\/admin\/sos\/([0-9a-f-]{36})\/(ack|resolve)$/);
+    const r = await rpc('admin_sos_action', { p_alert_id: id, p_action: action === 'ack' ? 'ack' : 'resolve' });
+    return ok({ message: r.message });
+  }
+  if (m === 'get' && url === '/api/admin/reports') {
+    const { data, error } = await supabase.from('user_reports').select('*').order('created_at', { ascending: false });
+    if (error) fail(error);
+    return ok(data || []);
+  }
+  if (m === 'post' && /^\/api\/admin\/reports\/[0-9a-f-]{36}\/resolve$/.test(url)) {
+    const id = url.split('/')[4];
+    const r = await rpc('admin_resolve_report', { p_report_id: id, p_status: body.status, p_note: body.note ?? null });
+    return ok({ message: r.message });
+  }
+  if (m === 'get' && /^\/api\/admin\/reports\/[0-9a-f-]{36}\/investigations$/.test(url)) {
+    const id = url.split('/')[4];
+    const { data, error } = await supabase.from('report_investigations').select('*')
+      .eq('report_id', id).order('created_at', { ascending: false });
+    if (error) fail(error);
+    return ok(data || []);
+  }
+  if (m === 'post' && /^\/api\/admin\/reports\/[0-9a-f-]{36}\/investigate$/.test(url)) {
+    const id = url.split('/')[4];
+    const r = await rpc('admin_investigate_report', {
+      p_report_id: id, p_action: body.action, p_note: body.note ?? null,
+      p_assign_to: body.assignTo ?? null, p_evidence: body.evidence ?? null,
+    });
+    return ok({ message: r.message });
+  }
+  if (m === 'get' && url === '/api/admin/tickets') {
+    const { data, error } = await supabase.from('support_tickets').select('*').order('created_at', { ascending: false });
+    if (error) fail(error);
+    return ok(data || []);
+  }
+  if (m === 'get' && /^\/api\/admin\/tickets\/[0-9a-f-]{36}$/.test(url)) {
+    const id = url.split('/').pop();
+    const { data: ticket, error } = await supabase.from('support_tickets').select('*').eq('id', id).maybeSingle();
+    if (error) fail(error);
+    const { data: messages } = await supabase.from('ticket_messages').select('*').eq('ticket_id', id).order('created_at');
+    return ok({ ...ticket, messages: messages || [] });
+  }
+  if (m === 'post' && /^\/api\/admin\/tickets\/[0-9a-f-]{36}\/reply$/.test(url)) {
+    const id = url.split('/')[4];
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('ticket_messages')
+      .insert({ ticket_id: id, sender_id: user.id, body: body.body });
+    if (error) fail(error);
+    if (body.status) {
+      await supabase.from('support_tickets').update({ status: body.status }).eq('id', id);
+    }
+    const { data: messages } = await supabase.from('ticket_messages').select('*').eq('ticket_id', id).order('created_at');
+    return ok({ messages: messages || [] });
+  }
+
+  /* ── the audit log ── */
+  if (m === 'get' && url === '/api/master/audit') {
+    let q = supabase.from('admin_audit_log').select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .limit(Number(query.limit) || 50).offset(Number(query.offset) || 0);
+    if (query.category) q = q.eq('category', query.category);
+    if (query.result) q = q.eq('result', query.result);
+    if (query.q) q = q.or(`action.ilike.%${query.q}%,target_label.ilike.%${query.q}%`);
+    const { data, error, count } = await q;
+    if (error) fail(error);
+    return ok({ entries: data || [], total: count ?? (data || []).length });
+  }
+
+  /* ── platform settings ── */
+  if (m === 'get' && url === '/api/master/settings') {
+    const { data, error } = await supabase.from('platform_settings').select('*').order('category');
+    if (error) fail(error);
+    return ok({ settings: data || [], gateway: { razorpay: false } });
+  }
+  if (m === 'put' && url === '/api/master/settings') {
+    const entries = Object.entries(body.settings || {});
+    for (const [key, value] of entries) {
+      const { error } = await supabase.from('platform_settings')
+        .upsert({ key, value: typeof value === 'object' ? value : { value } }, { onConflict: 'key' });
+      if (error) fail(error);
+    }
+    await rpc('record_audit', { p_action: 'settings.update', p_category: 'settings' });
+    return ok({ message: 'Settings saved.' });
+  }
+
+  /* ── admins ── */
+  if (m === 'get' && url === '/api/master/admins') {
+    const { data, error } = await supabase.from('admin_profiles').select('*, profiles!admin_profiles_user_id_fkey(name, email, phone, is_active)');
+    if (error) fail(error);
+    const admins = (data || []).map((a) => {
+      const u = Array.isArray(a.profiles) ? a.profiles[0] : a.profiles;
+      return {
+        userId: a.user_id, name: u?.name || '', email: u?.email || a.admin_email || '',
+        phone: u?.phone || '', adminRole: a.admin_role, isOwner: a.is_owner, status: a.status,
+        emailVerified: a.email_verified, twofaEnabled: a.twofa_enabled,
+        locked: Boolean(a.locked_until && new Date(a.locked_until) > new Date()),
+        lockedUntil: a.locked_until, failedAttempts: a.failed_attempts,
+        lastLoginAt: a.last_login_at, lastLoginIp: a.last_login_ip, createdAt: a.created_at,
+        isProtected: a.admin_role === 'super_admin' || a.is_owner,
+        permissions: [],
+      };
+    });
+    return ok({ admins, roles: ADMIN_ROLES, permissions: ALL_PERMISSIONS });
+  }
+  const adminAction = url.match(/^\/api\/master\/admins\/([0-9a-f-]{36})\/(suspend|2fa\/reset)$/);
+  if (m === 'post' && adminAction) {
+    const [, id, action] = adminAction;
+    if (action === 'suspend') {
+      const r = await rpc('admin_suspend_admin', {
+        p_user_id: id, p_suspend: body.suspend !== false, p_reason: body.reason ?? null,
+      });
+      return ok({ message: r.message });
+    }
+    const r = await rpc('admin_reset_admin_2fa', { p_user_id: id });
+    return ok({ message: r.message });
+  }
+  if (m === 'patch' && /^\/api\/master\/admins\/[0-9a-f-]{36}$/.test(url)) {
+    const id = url.split('/').pop();
+    const r = await rpc('admin_update_admin', {
+      p_user_id: id, p_admin_role: body.adminRole ?? null,
+      p_permissions: body.permissions ? { grant: body.permissions.grant || [] } : null,
+    });
+    return ok({ message: r.message });
+  }
+  if (m === 'delete' && /^\/api\/master\/admins\/[0-9a-f-]{36}$/.test(url)) {
+    const id = url.split('/').pop();
+    const r = await rpc('admin_remove_admin', { p_user_id: id });
+    return ok({ message: r.message });
+  }
+
+  return { handled: false };
+}
+
+/* ── shape helpers for the admin screens ──────────────────────────────── */
+const mapUser = (p) => ({
+  id: p.id, role: p.role, name: p.name, phone: p.phone, email: p.email,
+  avatarUrl: p.avatar_path ? publicUrl('avatars', p.avatar_path) : null,
+  isActive: p.is_active, blockedReason: p.blocked_reason,
+  phoneVerified: p.phone_verified, emailVerified: Boolean(p.email_verified_at),
+  createdAt: p.created_at, deactivatedAt: p.deactivated_at,
+  ratingAvg: p.passenger_profiles?.[0]?.rating_avg ?? p.driver_profiles?.[0]?.rating_avg ?? 0,
+  ratingCount: p.passenger_profiles?.[0]?.rating_count ?? p.driver_profiles?.[0]?.rating_count ?? 0,
+});
+
+const mapVehicle = (v) => ({
+  id: v.id, registrationNumber: v.registration_number, vehicleType: v.vehicle_type,
+  model: v.model, capacity: v.capacity, photoUrl: v.photo_path ? publicUrl('vehicles', v.photo_path) : null,
+  isPrimary: v.is_primary,
+});
+
+const mapDocument = (d) => ({
+  id: d.id, docType: d.doc_type, docNumber: d.doc_number,
+  fileUrl: d.file_path, status: d.status, reviewNote: d.review_note,
+  createdAt: d.created_at,
+});
+
+const mapPricing = (p) => ({
+  id: p.id, cityId: p.city_id, cityName: p.cities?.name,
+  vehicleType: p.vehicle_type, baseFare: p.base_fare, perKm: p.per_km,
+  perMinute: p.per_minute, minFare: p.min_fare, bookingFee: p.booking_fee,
+  waitingPerMin: p.waiting_per_min, freeWaitMin: p.free_wait_min,
+  nightMultiplier: p.night_multiplier, nightFromHour: p.night_from_hour,
+  nightToHour: p.night_to_hour, isActive: p.is_active,
+});
+
+/* the role catalogue and the 35 permissions (mirrors server/src/services/rbac.js) */
+const ALL_PERMISSIONS = [
+  'users.view', 'users.edit', 'users.block', 'users.suspend', 'users.deactivate', 'users.bulk',
+  'drivers.view', 'drivers.verify', 'drivers.manage',
+  'bookings.view', 'bookings.cancel', 'bookings.dispute',
+  'payments.view', 'payments.verify', 'payments.refund',
+  'finance.view', 'finance.reports', 'finance.settings',
+  'reports.view', 'reports.investigate',
+  'tickets.view', 'tickets.reply',
+  'notifications.send',
+  'analytics.view',
+  'cities.view', 'cities.manage',
+  'settings.view', 'settings.edit', 'settings.security',
+  'admins.view', 'admins.create', 'admins.edit', 'admins.suspend', 'admins.remove',
+  'audit.view',
+];
+const ADMIN_ROLES = ['super_admin', 'admin', 'finance_admin', 'support_admin', 'driver_manager', 'moderator'];
+
 /* ── the public API (same contract as before) ────────────────────────── */
 async function request(method, path, body, opts = {}) {
   if (isSupabaseConfigured) {
-    try {
-      const routed = await route(method, path, body, opts);
-      if (routed.handled) return routed.data;
-    } catch (err) {
-      throw err;
-    }
+    const routed = await route(method, path, body, opts);
+    if (routed.handled) return routed.data;
+    const admin = await routeAdmin(method, path.split('?')[0], body, Object.fromEntries(new URLSearchParams(path.split('?')[1] || '')));
+    if (admin.handled) return admin.data;
   }
   return expressRequest(method, path, body, opts);
 }
