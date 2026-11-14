@@ -14,13 +14,31 @@ const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!url || !anonKey) {
-  throw new Error(
-    'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY ' +
-    '(copy .env.example to .env), then rebuild. On Render: Clear build cache & deploy.'
+  /* Deliberately NOT thrown here: a throw while the modules are still
+     loading happens before React can mount the error boundary, and the
+     visitor would get a blank page. The app renders this message. */
+  console.error(
+    '[supabase] This site is not connected to Supabase yet. Set VITE_SUPABASE_URL ' +
+    'and VITE_SUPABASE_ANON_KEY, then rebuild (Render: Clear build cache & deploy).'
   );
 }
 
-export const supabase = createClient(url, anonKey, {
+/** True when the build carries a usable Supabase configuration. */
+export const isSupabaseConfigured = Boolean(url && anonKey);
+
+/** The message shown when the environment is missing. */
+export const CONFIG_ERROR =
+  'This site is not connected to Supabase yet. Set VITE_SUPABASE_URL and ' +
+  'VITE_SUPABASE_ANON_KEY in the environment, then rebuild ' +
+  '(Render: Clear build cache & deploy).';
+
+/** Throws the configuration error — called by every data call. */
+export function requireSupabase() {
+  if (!isSupabaseConfigured) throw new Error(CONFIG_ERROR);
+  return supabase;
+}
+
+export const supabase = createClient(url || 'http://127.0.0.1:54321', anonKey || 'missing-anon-key', {
   auth: {
     persistSession: true,
     autoRefreshToken: true,

@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth, homeFor } from './context/AuthContext';
+import { isSupabaseConfigured, CONFIG_ERROR } from './lib/supabase';
 
 import Landing from './pages/Landing';
 import TrackPublic from './pages/TrackPublic';
@@ -48,51 +49,62 @@ function Require({ roles, children }) {
 }
 
 export default function App() {
+  /* A missing configuration is a deployment mistake, not a crash — show the
+     operator exactly what to fix instead of a blank page. */
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6 dark:bg-slate-950">
+        <div className="card w-full max-w-lg p-6">
+          <h1 className="text-lg font-bold">Sawaari is not connected yet</h1>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{CONFIG_ERROR}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/track/:token" element={<TrackPublic />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
+    <AuthProvider>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/track/:token" element={<TrackPublic />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
 
-          {/* passenger */}
-          <Route path="/passenger" element={<Require roles={['rider']}><PassengerLayout /></Require>}>
-            <Route index element={<PassengerDashboard />} />
-            <Route path="book" element={<BookRide />} />
-            <Route path="ride/:id" element={<RideTracking />} />
-            <Route path="rides" element={<RideHistory />} />
-            <Route path="payments" element={<PassengerPayments />} />
-            <Route path="places" element={<SavedPlaces />} />
-            <Route path="profile" element={<Profile />} />
-          </Route>
+        {/* passenger */}
+        <Route path="/passenger" element={<Require roles={['rider']}><PassengerLayout /></Require>}>
+          <Route index element={<PassengerDashboard />} />
+          <Route path="book" element={<BookRide />} />
+          <Route path="ride/:id" element={<RideTracking />} />
+          <Route path="rides" element={<RideHistory />} />
+          <Route path="payments" element={<PassengerPayments />} />
+          <Route path="places" element={<SavedPlaces />} />
+          <Route path="profile" element={<Profile />} />
+        </Route>
 
-          {/* driver */}
-          <Route path="/driver" element={<Require roles={['driver']}><DriverLayout /></Require>}>
-            <Route index element={<DriverDashboard />} />
-            <Route path="rides" element={<DriverRides />} />
-            <Route path="earnings" element={<DriverEarnings />} />
-            <Route path="profile" element={<DriverProfile />} />
-          </Route>
+        {/* driver */}
+        <Route path="/driver" element={<Require roles={['driver']}><DriverLayout /></Require>}>
+          <Route index element={<DriverDashboard />} />
+          <Route path="rides" element={<DriverRides />} />
+          <Route path="earnings" element={<DriverEarnings />} />
+          <Route path="profile" element={<DriverProfile />} />
+        </Route>
 
-          {/* administrator */}
-          <Route path="/admin/login" element={<AdminLogin />} />
-          <Route path="/admin" element={<Require roles={['admin']}><AdminLayout /></Require>}>
-            <Route index element={<AdminDashboard />} />
-            <Route path="users" element={<AdminUsers />} />
-            <Route path="drivers" element={<AdminDrivers />} />
-            <Route path="rides" element={<AdminRides />} />
-            <Route path="payments" element={<AdminPayments />} />
-            <Route path="ratings" element={<AdminRatings />} />
-            <Route path="settings" element={<AdminSettings />} />
-            <Route path="activity" element={<AdminActivity />} />
-          </Route>
+        {/* administrator */}
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin" element={<Require roles={['admin']}><AdminLayout /></Require>}>
+          <Route index element={<AdminDashboard />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="drivers" element={<AdminDrivers />} />
+          <Route path="rides" element={<AdminRides />} />
+          <Route path="payments" element={<AdminPayments />} />
+          <Route path="ratings" element={<AdminRatings />} />
+          <Route path="settings" element={<AdminSettings />} />
+          <Route path="activity" element={<AdminActivity />} />
+        </Route>
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AuthProvider>
   );
 }
