@@ -115,7 +115,9 @@ begin
     coalesce(nullif(v_name, ''), 'Rider'),
     nullif(v_phone, ''),
     new.email,
-    coalesce(new.phone_verified, false)
+    -- to_jsonb() keeps this working on every Supabase version: the phone
+    -- confirmation column is called phone_verified or phone_confirmed_at
+    coalesce((to_jsonb(new) ->> 'phone_verified')::boolean, false)
   )
   on conflict (id) do update
     set name  = excluded.name,
