@@ -64,6 +64,18 @@ async function listServices() {
   return services;
 }
 
+/* The owner's address comes from the local server/.env (never committed),
+   so no personal data ends up in the repository. */
+function ownerEmail() {
+  if (process.env.SUPER_ADMIN_EMAIL) return process.env.SUPER_ADMIN_EMAIL;
+  try {
+    const env = fs.readFileSync(path.join(ROOT, 'server', '.env'), 'utf8');
+    const m = env.match(/^SUPER_ADMIN_EMAIL=(.+)$/m);
+    if (m) return m[1].trim();
+  } catch { /* no local .env */ }
+  return 'owner@example.com';
+}
+
 /* ── 2. env vars ───────────────────────────────────────────────────────── */
 function desiredApiEnv({ frontendUrl, databaseUrl, existing = [] }) {
   const have = new Map(existing.map((e) => [e.key, e.value]));
@@ -74,7 +86,7 @@ function desiredApiEnv({ frontendUrl, databaseUrl, existing = [] }) {
   set('JWT_SECRET', hex(32));
   set('OTP_PEPPER', hex(24));
   set('ADMIN_TOTP_ENCRYPTION_KEY', hex(32));
-  set('SUPER_ADMIN_EMAIL', 'utkarshbajpai077@gmail.com');
+  set('SUPER_ADMIN_EMAIL', ownerEmail());
   set('SUPER_ADMIN_PASSWORD', 'Sawaari-' + hex(9));
   set('APP_URL', frontendUrl);
   set('FRONTEND_URL', frontendUrl);
