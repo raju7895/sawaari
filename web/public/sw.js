@@ -52,6 +52,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   const sameOrigin = url.origin === self.location.origin;
 
+  // Supabase (api, realtime and storage) is always network-only
+  if (url.hostname.endsWith('.supabase.co')) return;
+
   // API + socket traffic must never be served from a cache
   if (sameOrigin && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io'))) {
     event.respondWith(fetch(request).catch(() => new Response(

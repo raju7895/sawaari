@@ -54,6 +54,9 @@ desktop.ini
 .vscode/
 *.swp
 
+# Agent tooling installed by "npx skills add" (not part of the app)
+.agents/
+
 # Local DB dumps
 *.sql.gz
 *.dump

@@ -20,14 +20,21 @@ export default function Register() {
     if (form.password !== form.confirm) return toast('Passwords do not match', 'error');
     if (!/^\d{10}$/.test(form.phone.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '')))
       return toast('Enter a valid 10-digit Indian mobile number', 'error');
+    if (!form.email.trim())
+      return toast('Enter an e-mail address — it is how you sign in', 'error');
     setBusy(true);
     try {
       const res = await register({
         role, name: form.name.trim(), phone: form.phone.trim(),
-        email: form.email.trim() || undefined, password: form.password,
+        email: form.email.trim(), password: form.password,
       });
-      toast(res.message || 'Account created — verify the OTP', 'success');
-      navigate('/verify-otp', { state: { phone: res.phone || form.phone.trim(), devCode: res.devCode, role } });
+      if (res?.needsEmailConfirmation) {
+        toast(res.message, 'success');
+        navigate('/login', { state: { registered: true } });
+        return;
+      }
+      toast(res.message || 'Welcome to Sawaari!', 'success');
+      navigate(role === 'driver' ? '/driver/profile' : '/app');
     } catch (err) {
       toast(err.message, 'error');
     } finally { setBusy(false); }

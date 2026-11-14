@@ -52,9 +52,9 @@ export default function Login() {
         </div>
         <form onSubmit={submit} className="card space-y-4 p-6">
           <div>
-            <label className="label">Mobile number or email</label>
+            <label className="label">E-mail address</label>
             <input
-              className="input" placeholder="98765 43210" autoComplete="username"
+              className="input" placeholder="you@email.com" type="email" autoComplete="username"
               value={form.identifier} onChange={(e) => setForm({ ...form, identifier: e.target.value })}
               required
             />

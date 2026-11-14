@@ -21,6 +21,7 @@ export default defineConfig({
           react: ['react', 'react-dom', 'react-router-dom'],
           maps: ['leaflet', 'react-leaflet'],
           charts: ['recharts'],
+          supabase: ['@supabase/supabase-js'],
         },
       },
     },
