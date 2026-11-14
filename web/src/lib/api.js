@@ -30,9 +30,12 @@ export async function currentUser() {
 }
 
 export async function myProfile() {
+  /* vehicles hang off the driver, not off the profile — the embed has to
+     follow that chain or PostgREST refuses the whole query (PGRST200) and
+     the app never learns who the signed-in person is. */
   const { data, error } = await supabase
     .from('profiles')
-    .select('*, drivers(*), vehicles(*)')
+    .select('*, drivers(*, vehicles(*))')
     .eq('id', (await currentUser())?.id || '')
     .maybeSingle();
   if (error) fail(error);
@@ -63,14 +66,22 @@ export async function updateProfile(patch) {
 }
 
 /* ── rides ───────────────────────────────────────────────────────────── */
+/* NOTE on the select strings below:
+ *   • PostgREST refuses a space between the constraint name and the "(" of a
+ *     *nested* embed ("unexpected )"), so the embeds are written without
+ *     spaces;
+ *   • embedding the same table twice needs an alias, otherwise PostgREST
+ *     generates the same alias twice and the query fails with
+ *     "table name ... specified more than once".
+ */
 const RIDE_SELECT = `
   id, ref, rider_id, driver_id, vehicle_type, status, fare, fare_breakdown,
   ride_otp, share_token, pickup_address, pickup_lat, pickup_lng,
   drop_address, drop_lat, drop_lng, distance_km, duration_min,
   cancel_reason, completed_at, cancelled_at, created_at,
-  profiles!rides_rider_id_fkey ( full_name, phone, avatar_path ),
-  drivers!rides_driver_id_fkey ( id, is_verified, rating_avg, user_id,
-    profiles!drivers_user_id_fkey ( full_name, phone, avatar_path ) )
+  profiles!rides_rider_id_fkey(full_name, phone, avatar_path),
+  drivers!rides_driver_id_fkey(id, is_verified, rating_avg, user_id,
+    profiles!drivers_user_id_fkey(full_name, phone, avatar_path))
 `;
 
 const one = (row) => row || null;
@@ -195,7 +206,7 @@ export async function rateRide(rideId, toUser, rating, comment) {
 export async function ratingsFor(userId) {
   const { data, error } = await supabase
     .from('ratings')
-    .select('*, profiles!ratings_from_user_fkey ( full_name )')
+    .select('*, profiles!ratings_from_user_fkey(full_name)')
     .eq('to_user', userId)
     .order('created_at', { ascending: false });
   if (error) fail(error);
@@ -206,7 +217,7 @@ export async function ratingsFor(userId) {
 export async function listMyPayments() {
   const { data, error } = await supabase
     .from('payments')
-    .select('*, rides!payments_ride_id_fkey ( ref, drop_address )')
+    .select('*, rides!payments_ride_id_fkey(ref, drop_address)')
     .or(`rider_id.eq.${(await currentUser())?.id || ''},driver_id.in.(${(await myDriver())?.id || ''})`)
     .order('created_at', { ascending: false });
   if (error) fail(error);
@@ -295,8 +306,7 @@ export async function adminListProfiles({ search = '', role = '', limit = 50, of
     .from('profiles')
     .select('*, drivers(*)', { count: 'exact' })
     .order('created_at', { ascending: false })
-    .limit(limit)
-    .offset(offset);
+    .range(offset, offset + limit - 1);
   if (search) q = q.or(`full_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
   if (role) q = q.eq('role', role);
   const { data, error, count } = await q;
@@ -307,10 +317,9 @@ export async function adminListProfiles({ search = '', role = '', limit = 50, of
 export async function adminListDrivers({ status = '', limit = 50, offset = 0 } = {}) {
   let q = supabase
     .from('drivers')
-    .select('*, profiles!drivers_user_id_fkey ( full_name, phone, email, role ), vehicles(*), driver_documents(*)', { count: 'exact' })
+    .select('*, profiles!drivers_user_id_fkey(full_name, phone, email, role), vehicles(*), driver_documents(*)', { count: 'exact' })
     .order('created_at', { ascending: false })
-    .limit(limit)
-    .offset(offset);
+    .range(offset, offset + limit - 1);
   if (status) q = q.eq('is_verified', status === 'verified');
   const { data, error, count } = await q;
   if (error) fail(error);
@@ -322,8 +331,7 @@ export async function adminListRides({ status = '', limit = 50, offset = 0 } = {
     .from('rides')
     .select(RIDE_SELECT, { count: 'exact' })
     .order('created_at', { ascending: false })
-    .limit(limit)
-    .offset(offset);
+    .range(offset, offset + limit - 1);
   if (status) q = q.eq('status', status);
   const { data, error, count } = await q;
   if (error) fail(error);
@@ -333,10 +341,9 @@ export async function adminListRides({ status = '', limit = 50, offset = 0 } = {
 export async function adminListPayments({ status = '', limit = 50, offset = 0 } = {}) {
   let q = supabase
     .from('payments')
-    .select('*, rides!payments_ride_id_fkey ( ref )', { count: 'exact' })
+    .select('*, rides!payments_ride_id_fkey(ref)', { count: 'exact' })
     .order('created_at', { ascending: false })
-    .limit(limit)
-    .offset(offset);
+    .range(offset, offset + limit - 1);
   if (status) q = q.eq('status', status);
   const { data, error, count } = await q;
   if (error) fail(error);
@@ -346,10 +353,9 @@ export async function adminListPayments({ status = '', limit = 50, offset = 0 } 
 export async function adminListRatings({ limit = 50, offset = 0 } = {}) {
   const { data, error, count } = await supabase
     .from('ratings')
-    .select('*, profiles!ratings_from_user_fkey ( full_name ), profiles!ratings_to_user_fkey ( full_name )', { count: 'exact' })
+    .select('*, from_user:profiles!ratings_from_user_fkey(full_name), to_user:profiles!ratings_to_user_fkey(full_name)', { count: 'exact' })
     .order('created_at', { ascending: false })
-    .limit(limit)
-    .offset(offset);
+    .range(offset, offset + limit - 1);
   if (error) fail(error);
   return { rows: data || [], total: count ?? (data || []).length };
 }
@@ -357,10 +363,9 @@ export async function adminListRatings({ limit = 50, offset = 0 } = {}) {
 export async function adminListActions({ limit = 50, offset = 0 } = {}) {
   const { data, error, count } = await supabase
     .from('admin_actions')
-    .select('*, profiles!admin_actions_admin_id_fkey ( full_name )', { count: 'exact' })
+    .select('*, profiles!admin_actions_admin_id_fkey(full_name)', { count: 'exact' })
     .order('created_at', { ascending: false })
-    .limit(limit)
-    .offset(offset);
+    .range(offset, offset + limit - 1);
   if (error) fail(error);
   return { rows: data || [], total: count ?? (data || []).length };
 }
@@ -434,6 +439,10 @@ export async function adminRefundPayment(id) {
 /* ── shaping ─────────────────────────────────────────────────────────── */
 export function shapeProfile(p) {
   if (!p) return null;
+  /* "drivers" hangs off the profile by its user_id, so PostgREST hands it
+     back as a list (one driver per profile, but the embed is one-to-many
+     from the database's point of view). */
+  const driverRow = Array.isArray(p.drivers) ? p.drivers[0] : p.drivers;
   return {
     id: p.id,
     role: p.role,
@@ -446,8 +455,8 @@ export function shapeProfile(p) {
     isBlocked: p.is_blocked,
     isVerified: p.is_verified,
     createdAt: p.created_at,
-    driver: p.drivers ? shapeDriver(p.drivers) : null,
-    vehicle: p.drivers?.vehicles?.[0] || p.vehicles?.[0] || null,
+    driver: driverRow ? shapeDriver(driverRow) : null,
+    vehicle: driverRow?.vehicles?.[0] || null,
   };
 }
 

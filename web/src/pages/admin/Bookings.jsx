@@ -32,7 +32,7 @@ export default function Bookings() {
 
   return (
     <div className="space-y-4">
-      <ErrorNote message={error} />
+      <ErrorNote message={error || rides.error} onRetry={rides.reload} />
       {ok ? <Notice tone="ok">{ok}</Notice> : null}
 
       <div className="flex flex-wrap gap-2">

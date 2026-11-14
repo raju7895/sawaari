@@ -30,7 +30,7 @@ export default function Ratings() {
 
   return (
     <div className="space-y-4">
-      <ErrorNote message={error} />
+      <ErrorNote message={error || ratings.error} onRetry={ratings.reload} />
       {ok ? <Notice tone="ok">{ok}</Notice> : null}
 
       <Card title={`Ratings (${ratings.data?.total ?? 0})`}>
@@ -39,7 +39,9 @@ export default function Ratings() {
 
         <ul className="divide-y divide-slate-100 dark:divide-slate-800">
           {rows.map((r) => {
-            const from = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+            /* the two profiles are aliased in the query (from_user / to_user) */
+            const from = Array.isArray(r.from_user) ? r.from_user[0] : r.from_user;
+            const to = Array.isArray(r.to_user) ? r.to_user[0] : r.to_user;
             return (
               <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <div className="min-w-0">
@@ -49,6 +51,11 @@ export default function Ratings() {
                     ))}
                     <span className="ml-1 text-xs text-slate-500">{r.rating}/5</span>
                   </p>
+                  {from?.full_name || to?.full_name ? (
+                    <p className="text-sm text-slate-600 dark:text-slate-300">
+                      {from?.full_name || 'Someone'} → {to?.full_name || 'someone'}
+                    </p>
+                  ) : null}
                   {r.comment ? <p className="text-sm text-slate-600 dark:text-slate-300">{r.comment}</p> : null}
                   <p className="text-xs text-slate-400">{fmtDateTime(r.created_at)}</p>
                 </div>

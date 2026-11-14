@@ -8,7 +8,7 @@ import { homeFor } from '../roles';
 import InstallPrompt from '../components/InstallPrompt';
 
 export default function Landing() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { dark, toggle } = useTheme();
   const [serverOpen, setServerOpen] = useState(false);
 
@@ -65,10 +65,12 @@ export default function Landing() {
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <Link
-                to={user ? (isAdminRole(user.role) ? '/admin' : user.role === 'driver' ? '/driver' : '/app/book') : '/register'}
+                to={user ? homeFor(profile?.role) : '/register'}
                 className="btn-primary px-6 py-3 text-base"
               >
-                {user && user.role === 'driver' ? 'Open driver console' : 'Book an auto'} <ArrowRight className="h-5 w-5" />
+                {profile?.role === 'driver' ? 'Open driver console'
+                  : profile?.role === 'admin' ? 'Open admin console'
+                    : 'Book an auto'} <ArrowRight className="h-5 w-5" />
               </Link>
               <Link to="/register" className="btn-secondary px-6 py-3 text-base">Become a driver</Link>
             </div>

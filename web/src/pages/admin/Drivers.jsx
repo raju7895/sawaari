@@ -35,7 +35,7 @@ export default function Drivers() {
 
   return (
     <div className="space-y-4">
-      <ErrorNote message={error} />
+      <ErrorNote message={error || drivers.error} onRetry={drivers.reload} />
       {ok ? <Notice tone="ok">{ok}</Notice> : null}
 
       <div className="flex gap-2">

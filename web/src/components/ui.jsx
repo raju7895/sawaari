@@ -1,6 +1,6 @@
 /* A few small building blocks so every screen looks the same and none of
  * them repeats the loading / empty / error handling. */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
 
 export function Card({ title, action, children, className = '' }) {
