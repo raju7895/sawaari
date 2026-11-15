@@ -11,6 +11,7 @@ export default function ForgotPassword() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
+  const [mailBlocked, setMailBlocked] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -21,6 +22,8 @@ export default function ForgotPassword() {
       setSent(true);
     } catch (err) {
       setError(err.message);
+      /* the mail quota can be used up — say what to do about it */
+      if (err.code === 'over_email_send_rate_limit') setMailBlocked(true);
     } finally {
       setBusy(false);
     }
@@ -43,7 +46,8 @@ export default function ForgotPassword() {
               If an account exists for {email}, a reset link is on its way. Open it on
               this device and you can choose a new password.
             </Notice>
-          ) : (            <div>
+          ) : (
+            <div>
               <label className="label" htmlFor="email">E-mail address</label>
               <input
                 id="email"
@@ -57,6 +61,14 @@ export default function ForgotPassword() {
               />
             </div>
           )}
+
+          {mailBlocked ? (
+            <Notice tone="warn">
+              The platform cannot send e-mails right now — the mail quota is used up.
+              An administrator can set a new password for you from the console
+              (People → Password), or try again in a few minutes.
+            </Notice>
+          ) : null}
 
           <button className="btn-primary w-full py-3" disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}

@@ -71,13 +71,32 @@ export function friendlyError(error, fallback = 'Something went wrong. Please tr
   if (!error) return fallback;
   const raw = typeof error === 'string' ? error : (error.message || error.error_description || '');
   const code = (error && (error.code || error.error_code)) || '';
+
+  /* The machine code says exactly what happened. It is checked first, so a
+     used-up mail quota is never shown as "too many attempts". */
+  const byCode = [
+    ['over_email_send_rate_limit', 'We cannot send e-mails at the moment — the mail quota is used up. Try again in a minute, or ask an administrator to set your password.'],
+    ['email_exists', 'An account already exists for that e-mail address. Try signing in.'],
+    ['email_not_confirmed', 'Confirm your e-mail address first — we sent you a code.'],
+    ['email_address_invalid', 'That e-mail address does not look right.'],
+    ['phone_provider_disabled', 'Phone sign-in is not switched on for this platform yet. Please use your e-mail address and password.'],
+    ['sms_provider_not_configured', 'Phone sign-in is not switched on for this platform yet. Please use your e-mail address and password.'],
+    ['sms_send_failed', 'The SMS could not be sent. Please try again in a minute, or sign in with your e-mail address.'],
+    ['over_sms_send_rate_limit', 'Too many SMS were sent. Please wait a minute and try again.'],
+    ['over_request_rate_limit', 'Too many attempts. Please wait a minute and try again.'],
+    ['weak_password', 'That password is too weak. Use at least 8 characters with a number and a letter.'],
+    ['otp_expired', 'That code is not right or has expired. Type it again, or ask for a new one.'],
+    ['signup_disabled', 'Sign-ups are closed at the moment. Please try again later.'],
+  ];
+  const hitCode = byCode.find(([needle]) => code === needle);
+  if (hitCode) return hitCode[1];
+
   const map = [
     ['Invalid login credentials', 'That e-mail address and password do not match.'],
     ['User already registered', 'An account already exists for that e-mail address. Try signing in.'],
+    ['already been registered', 'An account already exists for that e-mail address. Try signing in.'],
     ['Email not confirmed', 'Confirm your e-mail address first — we sent you a code.'],
-    ['email_not_confirmed', 'Confirm your e-mail address first — we sent you a code.'],
     ['Password should be at least', 'Choose a longer password (at least 6 characters).'],
-    ['weak_password', 'That password is too weak. Use at least 8 characters with a number and a letter.'],
     ['Failed to fetch', 'Could not reach the server. Check your connection — the Supabase project may be paused.'],
     ['fetch failed', 'Could not reach the server. Check your connection — the Supabase project may be paused.'],
     ['NetworkError', 'Could not reach the server. Check your connection and try again.'],
@@ -85,30 +104,25 @@ export function friendlyError(error, fallback = 'Something went wrong. Please tr
     ['Token has expired or is invalid', 'That code is not right or has expired. Type it again, or ask for a new one.'],
     ['expired_token', 'That code has expired. Ask for a new one.'],
     ['invalid_token', 'That code is not right. Check the digits and type it again.'],
-    ['Email not confirmed', 'Confirm your e-mail address first — we sent you a code.'],
     ['Unable to validate credentials', 'Could not sign you in — please try again.'],
     ['duplicate key', 'That record already exists.'],
     ['violates row-level security', 'You do not have permission to do that.'],
     ['insufficient_privilege', 'You do not have permission to do that.'],
-    ['rate limit', 'Too many attempts. Please wait a minute and try again.'],
-    ['over_email_send_rate_limit', 'Too many e-mails were sent. Please wait a minute and try again.'],
-    ['over_request_rate_limit', 'Too many attempts. Please wait a minute and try again.'],
-    ['over_email_send_rate_limit', 'Please wait a minute before asking for another code.'],
+    /* the mail quota — that is NOT an attempt limit, so it must never be
+       shown as one */
+    ['email rate limit exceeded', 'We cannot send e-mails at the moment — the mail quota is used up. Try again in a minute, or ask an administrator to set your password.'],
     ['Error sending confirmation email', 'We could not send the e-mail. Please try again in a minute.'],
     ['Error sending magic link email', 'We could not send the e-mail. Please try again in a minute.'],
-    ['Unsupported phone provider', 'Phone sign-in is not switched on for this platform yet. Please use your e-mail address and password, or the code we e-mail you.'],
-    ['Phone provider not configured', 'Phone sign-in is not switched on for this platform yet. Please use your e-mail address and password, or the code we e-mail you.'],
-    ['phone_provider_disabled', 'Phone sign-in is not switched on for this platform yet. Please use your e-mail address and password, or the code we e-mail you.'],
-    ['sms_provider_not_configured', 'Phone sign-in is not switched on for this platform yet. Please use your e-mail address and password, or the code we e-mail you.'],
     ['Error sending sms', 'The SMS could not be sent. Please try again in a minute, or sign in with your e-mail address.'],
-    ['sms_send_failed', 'The SMS could not be sent. Please try again in a minute, or sign in with your e-mail address.'],
-    ['SMS rate limit exceeded', 'Too many SMS were sent. Please wait a minute and try again.'],
-    ['over_sms_send_rate_limit', 'Too many SMS were sent. Please wait a minute and try again.'],
+    ['Unsupported phone provider', 'Phone sign-in is not switched on for this platform yet. Please use your e-mail address and password.'],
+    ['Phone provider not configured', 'Phone sign-in is not switched on for this platform yet. Please use your e-mail address and password.'],
     ['Phone number should conform to E.164', 'That mobile number does not look right. Use the international form, for example +919876543210.'],
     ['Phone number is not valid', 'That mobile number does not look right. Use the international form, for example +919876543210.'],
     ['invalid_phone', 'That mobile number does not look right. Use the international form, for example +919876543210.'],
     ['signup is disabled', 'Sign-ups are closed at the moment. Please try again later.'],
     ['Email address invalid', 'That e-mail address does not look right.'],
+    /* anything else that smells like a limit */
+    ['rate limit', 'Too many attempts. Please wait a minute and try again.'],
   ];
   const hit = map.find(([needle]) => raw.toLowerCase().includes(needle.toLowerCase()));
   if (hit) return hit[1];

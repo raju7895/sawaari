@@ -24,9 +24,18 @@ const fail = (error, extra = {}) => {
 
 /* ── the signed-in user ───────────────────────────────────────────────── */
 export async function currentUser() {
-  const { data, error } = await supabase.auth.getUser();
+  /* The session is read from the local store — no network call. The id is
+     only used to narrow a query, and the database still checks the token
+     that goes with the request, so nothing is given away. It also keeps
+     the Auth API quiet: one round-trip per data call used to be hundreds
+     of requests an hour, and every one of them counted against the rate
+     limits. */
+  const { data } = await supabase.auth.getSession();
+  if (data.session?.user) return data.session.user;
+
+  const { data: fresh, error } = await supabase.auth.getUser();
   if (error) fail(error);
-  return data?.user || null;
+  return fresh?.user || null;
 }
 
 export async function myProfile() {
