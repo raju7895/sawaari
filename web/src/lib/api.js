@@ -32,14 +32,16 @@ export async function currentUser() {
 export async function myProfile() {
   /* vehicles hang off the driver, not off the profile — the embed has to
      follow that chain or PostgREST refuses the whole query (PGRST200) and
-     the app never learns who the signed-in person is. */
+     the app never learns who the signed-in person is.
+     The row is shaped here as well: the whole app reads one shape
+     (fullName, avatarUrl, driver, …), not the raw columns. */
   const { data, error } = await supabase
     .from('profiles')
     .select('*, drivers(*, vehicles(*))')
     .eq('id', (await currentUser())?.id || '')
     .maybeSingle();
   if (error) fail(error);
-  return data || null;
+  return data ? shapeProfile(data) : null;
 }
 
 /** The driver row of the signed-in user (null for riders). */
@@ -453,6 +455,7 @@ export function shapeProfile(p) {
     avatarUrl: p.avatar_path ? publicFileUrl('avatars', p.avatar_path) : null,
     isActive: !p.is_blocked,
     isBlocked: p.is_blocked,
+    is_blocked: p.is_blocked,
     isVerified: p.is_verified,
     createdAt: p.created_at,
     driver: driverRow ? shapeDriver(driverRow) : null,
