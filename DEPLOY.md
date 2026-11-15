@@ -95,6 +95,36 @@ The **code** only appears in the e-mail when the *Confirm signup* and
 node scripts/verify-otp.js --email you@example.com
 ```
 
+### Signing in with a mobile number
+
+The sign-in screen has three ways in: **password**, **e-mail code** and
+**mobile OTP**. The last one needs an SMS provider — until one is set up
+Supabase answers every phone request with *Unsupported phone provider*,
+and the app says so instead of pretending a code was sent.
+
+The number is put into one form before it is sent anywhere
+(`web/src/lib/phone.js`): `9876543210`, `09876543210` and
+`+91 98765 43210` all become `+919876543210`, which is the only form the
+Auth service accepts. The database stores it in the same form
+(`public.normalize_phone()`), so the number that receives the code and
+the number that is stored are always the same.
+
+**Twilio Verify** — Authentication → Providers → Phone → *Enable* → add
+the Twilio **Account SID** and **Auth Token**, pick **Twilio Verify** as
+the provider, then save. The credentials live only in the dashboard.
+
+**Test numbers (development only)** — Authentication → Providers → Phone →
+*Test OTP*: add a number and the code it should always receive
+(`+919876543210` → `123456`). The code is accepted without an SMS being
+sent and without paying for one. Remove the test numbers again before you
+go live.
+
+> **India:** TRAI rules apply to SMS sent to Indian numbers. The sender ID
+> and every message template have to be registered with an Indian **DLT**
+> platform (MSG91, Netcore, ClearTrip…) and the DLT template IDs given to
+> the provider, or the messages are refused. Until that is done, keep the
+> e-mail ways in as the fallback.
+
 ## 5. What must never be committed
 
 - `.env` and anything else with a secret in it (`.gitignore` covers it)
