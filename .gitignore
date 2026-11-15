@@ -60,3 +60,6 @@ desktop.ini
 # Local DB dumps
 *.sql.gz
 *.dump
+
+# editor / agent settings
+.cursor/

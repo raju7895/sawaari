@@ -21,7 +21,8 @@ const arg = (name) => {
 };
 
 const email = (arg('email') || '').trim().toLowerCase();
-const password = arg('password') || 'TempCheck-2026-abc';
+/* no password is written down anywhere — one is made up for the test */
+const password = arg('password') || `Temp-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 const fullName = arg('name') || 'Flow Check';
 
 const log = (...a) => console.log(' ', ...a);

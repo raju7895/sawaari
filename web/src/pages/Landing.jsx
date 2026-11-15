@@ -15,7 +15,8 @@ export default function Landing() {
   useEffect(() => {
   }, []);
 
-  const home = homeFor(user?.role);
+  /* the role lives in the profile — the token only says "authenticated" */
+  const home = homeFor(profile?.role);
   const ctaLabel = user ? 'Go to dashboard' : 'Get started';
 
   return (

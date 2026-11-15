@@ -3,13 +3,16 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { LogIn, Loader2, KeyRound, Mail, MessageSquare } from 'lucide-react';
 import { useAuth, homeFor } from '../../context/AuthContext';
 import { formatPhone, toE164 } from '../../lib/phone';
+import { PHONE_OTP_ENABLED, EMAIL_OTP_ENABLED } from '../../lib/flags';
 import LogoMark from '../../components/LogoMark';
 import { ErrorNote, Notice } from '../../components/ui';
 
+/* E-mail and password always work. The other two are only offered when
+ * the provider they need is really set up — see lib/flags.js. */
 const METHODS = [
   { key: 'password', label: 'Password', icon: LogIn },
-  { key: 'email', label: 'E-mail code', icon: Mail },
-  { key: 'phone', label: 'Mobile OTP', icon: MessageSquare },
+  ...(EMAIL_OTP_ENABLED ? [{ key: 'email', label: 'E-mail code', icon: Mail }] : []),
+  ...(PHONE_OTP_ENABLED ? [{ key: 'phone', label: 'Mobile OTP', icon: MessageSquare }] : []),
 ];
 
 export default function Login() {
@@ -29,9 +32,10 @@ export default function Login() {
     setOk('');
     try {
       if (method === 'password') {
-        const user = await signIn(form.email, form.password);
+        /* the profile carries the role (rider / driver / admin) */
+        const profile = await signIn(form.email, form.password);
         const from = location.state?.from;
-        navigate(from && from !== '/admin' ? from : homeFor(user?.role), { replace: true });
+        navigate(from && from !== '/admin' ? from : homeFor(profile?.role), { replace: true });
         return;
       }
 
@@ -83,25 +87,27 @@ export default function Login() {
           <ErrorNote message={error} />
           {ok ? <Notice tone="ok">{ok}</Notice> : null}
 
-          {/* the three ways in — the e-mail ones always work, the SMS one
-              needs a phone provider on the Supabase side */}
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
-            {METHODS.map((m) => (
-              <button
-                key={m.key}
-                type="button"
-                onClick={() => { setMethod(m.key); setError(''); setOk(''); }}
-                className={`flex flex-col items-center gap-1 rounded-lg py-2 text-xs font-semibold transition-all ${
-                  method === m.key
-                    ? 'bg-white text-brand-700 shadow dark:bg-slate-900 dark:text-brand-300'
-                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                }`}
-              >
-                <m.icon className="h-4 w-4" />
-                {m.label}
-              </button>
-            ))}
-          </div>
+          {/* the ways in — the e-mail one always works, the others only
+              when their provider is set up */}
+          {METHODS.length > 1 ? (
+            <div className={`grid gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800 ${METHODS.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              {METHODS.map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => { setMethod(m.key); setError(''); setOk(''); }}
+                  className={`flex flex-col items-center gap-1 rounded-lg py-2 text-xs font-semibold transition-all ${
+                    method === m.key
+                      ? 'bg-white text-brand-700 shadow dark:bg-slate-900 dark:text-brand-300'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  <m.icon className="h-4 w-4" />
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           {method === 'phone' ? (
             <>

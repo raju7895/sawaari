@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Loader2, LogIn, ShieldCheck } from 'lucide-react';
 import { useAuth, homeFor } from '../../context/AuthContext';
@@ -6,23 +6,26 @@ import LogoMark from '../../components/LogoMark';
 import { ErrorNote, Notice } from '../../components/ui';
 
 export default function AdminLogin() {
-  const { signIn, profile } = useAuth();
+  const { signIn, signOut, profile } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  if (profile?.role === 'admin') {
-    navigate('/admin', { replace: true });
-  }
+  /* already an administrator → straight to the console */
+  useEffect(() => {
+    if (profile?.role === 'admin') navigate('/admin', { replace: true });
+  }, [profile, navigate]);
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     setError('');
     try {
-      const user = await signIn(form.email, form.password);
-      if (user?.role !== 'admin') {
+      /* the role comes from the profile, not from the token */
+      const signedIn = await signIn(form.email, form.password);
+      if (signedIn?.role !== 'admin') {
+        await signOut();
         setError('That account is not an administrator.');
         return;
       }

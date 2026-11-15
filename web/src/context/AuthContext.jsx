@@ -100,12 +100,16 @@ export function AuthProvider({ children }) {
       },
     });
     if (error) throw new AuthError(friendlyError(error, 'Could not create the account.'), error);
+    /* the Auth service hands out a session right away when the address is
+       confirmed — read the profile now so the screen can go straight to
+       the right home instead of waiting for it */
+    if (data.session) await loadProfile(data.user);
     return {
       needsEmailConfirmation: !data.session,
       email: String(email).trim().toLowerCase(),
       role: role === 'driver' ? 'driver' : 'rider',
     };
-  }, []);
+  }, [loadProfile]);
 
   /**
    * Sends the 6-digit code by e-mail.
@@ -210,8 +214,11 @@ export function AuthProvider({ children }) {
       password,
     });
     if (error) throw new AuthError(friendlyError(error, 'Could not sign you in.'), error);
-    await loadProfile(data.user);
-    return data.user;
+    /* The role does not live in the token — it lives in public.profiles.
+       The profile is handed back so the screen knows where this person
+       belongs (the token only ever says "authenticated"). */
+    const row = await loadProfile(data.user);
+    return row;
   }, [loadProfile]);
 
   const signOut = useCallback(async () => {
