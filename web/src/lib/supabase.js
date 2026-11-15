@@ -51,27 +51,60 @@ export const supabase = createClient(url || 'http://127.0.0.1:54321', anonKey ||
 
 export const SUPABASE_URL = url;
 
+/**
+ * An error from Supabase Auth that still carries the machine-readable code,
+ * so a screen can react to it (an unconfirmed e-mail goes to the verify
+ * screen, for example) instead of only showing a sentence.
+ */
+export class AuthError extends Error {
+  constructor(message, error) {
+    super(message);
+    this.name = 'AuthError';
+    this.code = (error && (error.code || error.error_code)) || '';
+    this.status = (error && error.status) || 0;
+    this.raw = (error && (error.message || error.error_description)) || message;
+  }
+}
+
 /** A sentence a rider can act on, instead of "something went wrong". */
 export function friendlyError(error, fallback = 'Something went wrong. Please try again.') {
   if (!error) return fallback;
   const raw = typeof error === 'string' ? error : (error.message || error.error_description || '');
-  const code = (error && (error.code || '')) || '';
+  const code = (error && (error.code || error.error_code)) || '';
   const map = [
     ['Invalid login credentials', 'That e-mail address and password do not match.'],
     ['User already registered', 'An account already exists for that e-mail address. Try signing in.'],
-    ['Email not confirmed', 'Confirm your e-mail address first — check your inbox.'],
+    ['Email not confirmed', 'Confirm your e-mail address first — we sent you a code.'],
+    ['email_not_confirmed', 'Confirm your e-mail address first — we sent you a code.'],
     ['Password should be at least', 'Choose a longer password (at least 6 characters).'],
+    ['weak_password', 'That password is too weak. Use at least 8 characters with a number and a letter.'],
     ['Failed to fetch', 'Could not reach the server. Check your connection — the Supabase project may be paused.'],
     ['fetch failed', 'Could not reach the server. Check your connection — the Supabase project may be paused.'],
+    ['NetworkError', 'Could not reach the server. Check your connection and try again.'],
     ['JWT', 'Your session expired. Please sign in again.'],
-    ['rate limit', 'Too many attempts. Wait a minute and try again.'],
+    ['Token has expired or is invalid', 'That code is not right or has expired. Type it again, or ask for a new one.'],
+    ['expired_token', 'That code has expired. Ask for a new one.'],
+    ['invalid_token', 'That code is not right. Check the digits and type it again.'],
+    ['Email not confirmed', 'Confirm your e-mail address first — we sent you a code.'],
+    ['Unable to validate credentials', 'Could not sign you in — please try again.'],
     ['duplicate key', 'That record already exists.'],
     ['violates row-level security', 'You do not have permission to do that.'],
     ['insufficient_privilege', 'You do not have permission to do that.'],
-    ['Unable to validate credentials', 'Could not sign you in — please try again.'],
+    ['rate limit', 'Too many attempts. Please wait a minute and try again.'],
+    ['over_email_send_rate_limit', 'Too many e-mails were sent. Please wait a minute and try again.'],
+    ['over_request_rate_limit', 'Too many attempts. Please wait a minute and try again.'],
+    ['over_email_send_rate_limit', 'Please wait a minute before asking for another code.'],
+    ['Error sending confirmation email', 'We could not send the e-mail. Please try again in a minute.'],
+    ['Error sending magic link email', 'We could not send the e-mail. Please try again in a minute.'],
+    ['Unsupported phone provider', 'Phone sign-in is not switched on for this platform.'],
+    ['Phone provider not configured', 'Phone sign-in is not switched on for this platform.'],
+    ['signup is disabled', 'Sign-ups are closed at the moment. Please try again later.'],
+    ['Email address invalid', 'That e-mail address does not look right.'],
   ];
   const hit = map.find(([needle]) => raw.toLowerCase().includes(needle.toLowerCase()));
   if (hit) return hit[1];
-  if (code === '429') return 'Too many attempts. Wait a minute and try again.';
+  if (code === '429' || code === 'over_email_send_rate_limit') {
+    return 'Too many attempts. Please wait a minute and try again.';
+  }
   return raw || fallback;
 }

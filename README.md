@@ -83,6 +83,29 @@ Two things worth checking before you invite anybody:
   members of your project team. For real riders and drivers, add an SMTP
   provider.
 
+### How an account is confirmed
+
+A new account is confirmed with a **6-digit code** that arrives by e-mail
+(the *Confirm signup* template has to contain `{{ .Token }}`), and the
+confirmation **link** keeps working as well:
+
+| Screen | What it does |
+|---|---|
+| `/register` | creates the account, then sends the visitor to `/verify` |
+| `/verify` | the 6-digit code, a *Resend code* button with a 60-second cooldown |
+| `/auth/callback` | where a confirmation link lands; waits for the session, then goes to the home of the role |
+| `/forgot-password` | sends the reset link to `/reset-password` |
+| `/reset-password` | where a new password is chosen |
+
+Sign-in also works without a password: *Sign in with a code* sends a code
+to the address and the same `/verify` screen takes it.
+
+`scripts/verify-otp.js` walks the whole flow from the command line:
+
+```bash
+node scripts/verify-otp.js --email you@example.com
+```
+
 ---
 
 ## Deploying
@@ -168,6 +191,7 @@ installation.
 | `scripts/check-hooks.js` | a React hook that is used but never imported — a crash on that screen only |
 | `scripts/check-free-variables.js` | an identifier that is used but never declared — the same kind of crash |
 | `scripts/check-api.js` | runs every PostgREST select the app makes against the live project — a broken embed is a 4xx, not a build error |
+| `scripts/verify-otp.js` | walks the sign-up → code → confirmed → sign-in flow from the command line |
 | `scripts/build-all.js` | builds the web app, the APK and the Windows installer |
 
 ---

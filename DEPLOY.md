@@ -65,6 +65,36 @@ Create the administrator in **Authentication → Users → Add user**, not with
 `insert into auth.users` — a row written by hand has no `auth.identities`
 row and GoTrue refuses the sign-in with *Invalid login credentials*.
 
+### How a new account signs in
+
+```
+register  ──►  supabase.auth.signUp({ email, password, options: {
+                     data: { full_name, phone, role },
+                     emailRedirectTo: origin + '/auth/callback' } })
+            │
+            ├─ e-mail arrives with a 6-digit code  ──►  /verify
+            │      supabase.auth.verifyOtp({ email, token, type: 'email' })
+            │      "Resend code" → supabase.auth.resend({ type: 'signup', email })
+            │
+            └─ the link in the e-mail  ─────────►  /auth/callback
+                   (waits for the session, then goes to the home of the role)
+
+sign in   ──►  email + password
+            ├─ "e-mail not confirmed"  ─────────►  /verify (+ a new code)
+            └─ "sign in with a code"  ─────────►  /verify (mode=magic)
+```
+
+The **code** only appears in the e-mail when the *Confirm signup* and
+*Magic Link* templates contain `{{ .Token }}`. Put that in the template
+**next to** `{{ .ConfirmationURL }}` — then the e-mail carries the code
+*and* the link, and both ways in work.
+
+`scripts/verify-otp.js` walks the whole flow from the command line:
+
+```bash
+node scripts/verify-otp.js --email you@example.com
+```
+
 ## 5. What must never be committed
 
 - `.env` and anything else with a secret in it (`.gitignore` covers it)

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { UserPlus, Loader2, ShieldCheck, CarTaxiFront, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import LogoMark from '../../components/LogoMark';
-import { ErrorNote, Notice } from '../../components/ui';
+import { ErrorNote } from '../../components/ui';
 
 export default function Register() {
   const { signUp } = useAuth();
@@ -12,7 +12,6 @@ export default function Register() {
   const [form, setForm] = useState({ fullName: '', phone: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [sent, setSent] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -21,7 +20,8 @@ export default function Register() {
     try {
       const res = await signUp({ ...form, role });
       if (res.needsEmailConfirmation) {
-        setSent(true);
+        /* the address has to be confirmed first — the code is on its way */
+        navigate(`/verify?mode=signup&email=${encodeURIComponent(res.email)}`, { replace: true });
         return;
       }
       navigate(role === 'driver' ? '/driver/profile' : '/passenger', { replace: true });
@@ -41,17 +41,8 @@ export default function Register() {
           <p className="text-sm text-slate-500">Riders and drivers — it takes a minute</p>
         </div>
 
-        {sent ? (
-          <div className="card space-y-4 p-6">
-            <Notice tone="ok">Check your inbox — we sent a confirmation link to {form.email}.</Notice>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Confirm your address, then sign in.
-            </p>
-            <Link to="/login" className="btn-primary w-full py-3">Go to sign in</Link>
-          </div>
-        ) : (
-          <form onSubmit={submit} className="card space-y-4 p-6">
-            <ErrorNote message={error} />
+        <form onSubmit={submit} className="card space-y-4 p-6">
+          <ErrorNote message={error} />
 
             {/* role */}
             <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
@@ -151,7 +142,6 @@ export default function Register() {
               Already registered? <Link to="/login" className="link font-semibold">Sign in</Link>
             </p>
           </form>
-        )}
 
         <p className="mt-4 text-center text-xs text-slate-400">
           <Link to="/" className="link">← Back to home</Link>

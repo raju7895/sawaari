@@ -1,6 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { supabase, friendlyError } from '../lib/supabase';
+import { supabase, friendlyError, AuthError } from '../lib/supabase';
 import { myProfile } from '../lib/api';
+
+/** Where the confirmation link goes when the visitor clicks it. */
+const CALLBACK_PATH = '/auth/callback';
+
+/** The link the e-mail should send people back to. */
+function callbackUrl() {
+  return `${window.location.origin}${CALLBACK_PATH}`;
+}
 
 const AuthContext = createContext(null);
 
@@ -86,13 +94,74 @@ export function AuthProvider({ children }) {
           phone,
           role: role === 'driver' ? 'driver' : 'rider',
         },
+        /* where the confirmation link sends the visitor back to */
+        emailRedirectTo: callbackUrl(),
       },
     });
-    if (error) throw new Error(friendlyError(error, 'Could not create the account.'));
+    if (error) throw new AuthError(friendlyError(error, 'Could not create the account.'), error);
     return {
       needsEmailConfirmation: !data.session,
       email: String(email).trim().toLowerCase(),
+      role: role === 'driver' ? 'driver' : 'rider',
     };
+  }, []);
+
+  /**
+   * Sends the 6-digit code by e-mail.
+   *   • sign-up  → "Confirm signup"  (the code that verifies the address)
+   *   • sign-in  → "Magic Link"     (the code that signs somebody in)
+   */
+  const sendCode = useCallback(async (email, { shouldCreateUser = false } = {}) => {
+    const { error } = await supabase.auth.signInWithOtp({
+      email: String(email).trim().toLowerCase(),
+      options: {
+        shouldCreateUser,
+        emailRedirectTo: callbackUrl(),
+      },
+    });
+    if (error) throw new AuthError(friendlyError(error, 'Could not send the code.'), error);
+    return true;
+  }, []);
+
+  /**
+   * Asks for the confirmation code again (the button on the verify screen).
+   *
+   * Only the "signup" code can be re-sent this way — GoTrue's resend
+   * endpoint knows "signup", "email_change" and "sms". The code that signs
+   * somebody in is sent again with sendCode().
+   */
+  const resendCode = useCallback(async (email, type = 'signup') => {
+    const { error } = await supabase.auth.resend({
+      type,
+      email: String(email).trim().toLowerCase(),
+      options: { emailRedirectTo: callbackUrl() },
+    });
+    if (error) throw new AuthError(friendlyError(error, 'Could not send the code.'), error);
+    return true;
+  }, []);
+
+  /**
+   * Checks the 6-digit code.
+   *
+   * The type "email" is the one that covers every flow: GoTrue compares the
+   * code with the confirmation code of a sign-up and with the recovery code
+   * of a sign-in, so the same screen works for all of them.
+   */
+  const verifyCode = useCallback(async (email, token, type = 'email') => {
+    const address = String(email).trim().toLowerCase();
+    const { data, error } = await supabase.auth.verifyOtp({ email: address, token, type });
+    if (error) throw new AuthError(friendlyError(error, 'That code is not valid.'), error);
+    return data;
+  }, []);
+
+  /** The password reset e-mail: a link that opens /reset-password. */
+  const sendResetLink = useCallback(async (email) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      String(email).trim().toLowerCase(),
+      { redirectTo: `${window.location.origin}/reset-password` },
+    );
+    if (error) throw new AuthError(friendlyError(error, 'Could not send the reset e-mail.'), error);
+    return true;
   }, []);
 
   const signIn = useCallback(async (email, password) => {
@@ -100,7 +169,7 @@ export function AuthProvider({ children }) {
       email: String(email).trim().toLowerCase(),
       password,
     });
-    if (error) throw new Error(friendlyError(error, 'Could not sign you in.'));
+    if (error) throw new AuthError(friendlyError(error, 'Could not sign you in.'), error);
     await loadProfile(data.user);
     return data.user;
   }, [loadProfile]);
@@ -129,8 +198,12 @@ export function AuthProvider({ children }) {
     signUp,
     signIn,
     signOut,
+    sendCode,
+    resendCode,
+    verifyCode,
+    sendResetLink,
     refreshProfile,
-  }), [session, profile, role, loading, blocked, signUp, signIn, signOut, refreshProfile]);
+  }), [session, profile, role, loading, blocked, signUp, signIn, signOut, sendCode, resendCode, verifyCode, sendResetLink, refreshProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

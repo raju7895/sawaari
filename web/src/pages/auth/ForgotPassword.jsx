@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { KeyRound, Loader2 } from 'lucide-react';
-import { supabase, friendlyError } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 import LogoMark from '../../components/LogoMark';
 import { ErrorNote, Notice } from '../../components/ui';
 
 export default function ForgotPassword() {
+  const { sendResetLink } = useAuth();
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -16,10 +17,7 @@ export default function ForgotPassword() {
     setBusy(true);
     setError('');
     try {
-      const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-      if (err) throw new Error(friendlyError(err));
+      await sendResetLink(email);
       setSent(true);
     } catch (err) {
       setError(err.message);
@@ -45,8 +43,7 @@ export default function ForgotPassword() {
               If an account exists for {email}, a reset link is on its way. Open it on
               this device and you can choose a new password.
             </Notice>
-          ) : (
-            <div>
+          ) : (            <div>
               <label className="label" htmlFor="email">E-mail address</label>
               <input
                 id="email"
