@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Loader2, Ban, CheckCircle2 } from 'lucide-react';
-import { adminListProfiles, adminSetUserState } from '../../lib/api';
-import { Card, Loading, Empty, ErrorNote, StatusBadge, Notice, ConfirmDialog, useAsync } from '../../components/ui';
+import { Loader2, Ban, CheckCircle2, KeyRound } from 'lucide-react';
+import { adminListProfiles, adminSetUserPassword, adminSetUserState } from '../../lib/api';
+import { Card, Loading, Empty, ErrorNote, StatusBadge, Notice, ConfirmDialog, Field, Modal, useAsync } from '../../components/ui';
 import { fmtDateTime } from '../../lib/format';
 
 const ROLES = ['', 'rider', 'driver', 'admin'];
@@ -14,6 +14,8 @@ export default function Users() {
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [confirm, setConfirm] = useState(null);
+  const [passwordFor, setPasswordFor] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
   const limit = 25;
 
   const users = useAsync(
@@ -27,6 +29,26 @@ export default function Users() {
       await fn();
       setOk(message);
       setConfirm(null);
+      users.reload();
+    } catch (err) {
+      setError(err.message);
+    } finally { setBusy(false); }
+  };
+
+  /* somebody who cannot get the reset e-mail: the administrator sets a
+     new password instead */
+  const setPassword = async (e) => {
+    e.preventDefault();
+    if (newPassword.length < 8) {
+      setError('The password needs at least 8 characters.');
+      return;
+    }
+    setBusy(true); setError(''); setOk('');
+    try {
+      await adminSetUserPassword(passwordFor.id, newPassword);
+      setOk(`The password for ${passwordFor.name} was changed.`);
+      setPasswordFor(null);
+      setNewPassword('');
       users.reload();
     } catch (err) {
       setError(err.message);
@@ -98,6 +120,16 @@ export default function Users() {
                         type="button"
                         className="btn-ghost px-2 py-1 text-xs"
                         disabled={busy}
+                        title="Set a new password"
+                        onClick={() => { setPasswordFor(u); setNewPassword(''); setError(''); }}
+                      >
+                        <KeyRound className="h-4 w-4" />
+                        Password
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost px-2 py-1 text-xs"
+                        disabled={busy}
                         onClick={() => setConfirm({
                           user: u,
                           action: u.isBlocked ? 'unblock' : 'block',
@@ -121,6 +153,33 @@ export default function Users() {
           <button type="button" className="btn-ghost" disabled={rows.length < limit} onClick={() => setPage((p) => p + 1)}>Next</button>
         </div>
       </Card>
+
+      <Modal
+        open={Boolean(passwordFor)}
+        onClose={() => setPasswordFor(null)}
+        title={passwordFor ? `New password for ${passwordFor.name}` : ''}
+      >
+        <form onSubmit={setPassword} className="space-y-3">
+          <Field label="New password" hint="At least 8 characters. Give it to the person in person — it is never shown again.">
+            <input
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              minLength={8}
+            />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-ghost" onClick={() => setPasswordFor(null)}>Cancel</button>
+            <button className="btn-primary" disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Set the password
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       <ConfirmDialog
         open={Boolean(confirm)}

@@ -413,6 +413,20 @@ export async function adminVerifyDriver(driverId, verified) {
   return data;
 }
 
+/**
+ * Sets a new password for somebody who cannot get the reset e-mail.
+ * The reset link needs a working mail provider; this does not, so an
+ * administrator can always let a person back in.
+ */
+export async function adminSetUserPassword(userId, password) {
+  const { data, error } = await supabase.rpc('admin_set_user_password', {
+    p_user_id: userId, p_new_password: password,
+  });
+  if (error) fail(error);
+  if (data && data.ok === false) throw new ApiError(data.error || 'Not allowed.', 403, data);
+  return data;
+}
+
 export async function adminSetFares(fares) {
   const { data, error } = await supabase.rpc('admin_set_fares', { p_fares: fares });
   if (error) fail(error);
