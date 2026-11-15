@@ -137,6 +137,21 @@ for (const file of files) {
     const name = m[2];
     if (seen.has(name)) continue;
     seen.add(name);
+
+    /* JSX text is not code: "Your name (for a new account)</label>" looks
+       like a call, but the ")" is followed by a tag */
+    const open = src.indexOf('(', m.index);
+    let depth = 0;
+    let close = -1;
+    for (let k = open; k < src.length; k += 1) {
+      if (src[k] === '(') depth += 1;
+      else if (src[k] === ')') {
+        depth -= 1;
+        if (depth === 0) { close = k; break; }
+      }
+    }
+    if (close >= 0 && /^\s*</.test(src.slice(close + 1, close + 12))) continue;
+
     if (declared.has(name)) continue;
     if (GLOBALS.has(name) || KEYWORDS.has(name)) continue;
     if (/^[A-Z]/.test(name)) continue; // JSX components are always imported

@@ -19,7 +19,8 @@ export default function AppShell({ title, links, children, badge }) {
 
   const leave = async () => {
     await signOut();
-    navigate('/');
+    /* the person is signed out — the sign-in screen is where they belong */
+    navigate('/login', { replace: true });
   };
 
   return (

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase, friendlyError, AuthError } from '../lib/supabase';
 import { myProfile } from '../lib/api';
+import { toE164, isValidE164 } from '../lib/phone';
 
 /** Where the confirmation link goes when the visitor clicks it. */
 const CALLBACK_PATH = '/auth/callback';
@@ -164,6 +165,45 @@ export function AuthProvider({ children }) {
     return true;
   }, []);
 
+  /**
+   * Sends the 6-digit code by SMS.
+   *
+   * The number is put into the international form first — Supabase only
+   * accepts that one. The error is always checked: the screen must not
+   * say "the code is on its way" when nothing was sent.
+   */
+  const sendPhoneCode = useCallback(async (phone, { data, shouldCreateUser = true } = {}) => {
+    const number = toE164(phone);
+    if (!isValidE164(number)) {
+      throw new AuthError(
+        'That mobile number does not look right. Use the international form, for example +919876543210.',
+        { code: 'invalid_phone' },
+      );
+    }
+    const { error } = await supabase.auth.signInWithOtp({
+      phone: number,
+      options: { shouldCreateUser, data, channel: 'sms' },
+    });
+    if (error) throw new AuthError(friendlyError(error, 'We could not send the code by SMS.'), error);
+    return number;
+  }, []);
+
+  /** Asks for the SMS code again. */
+  const resendPhoneCode = useCallback(async (phone) => {
+    const number = toE164(phone);
+    const { error } = await supabase.auth.resend({ type: 'sms', phone: number });
+    if (error) throw new AuthError(friendlyError(error, 'We could not send the code by SMS.'), error);
+    return number;
+  }, []);
+
+  /** Checks the 6-digit code that arrived by SMS. */
+  const verifyPhoneCode = useCallback(async (phone, token) => {
+    const number = toE164(phone);
+    const { data, error } = await supabase.auth.verifyOtp({ phone: number, token, type: 'sms' });
+    if (error) throw new AuthError(friendlyError(error, 'That code is not valid.'), error);
+    return data;
+  }, []);
+
   const signIn = useCallback(async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email: String(email).trim().toLowerCase(),
@@ -202,8 +242,11 @@ export function AuthProvider({ children }) {
     resendCode,
     verifyCode,
     sendResetLink,
+    sendPhoneCode,
+    resendPhoneCode,
+    verifyPhoneCode,
     refreshProfile,
-  }), [session, profile, role, loading, blocked, signUp, signIn, signOut, sendCode, resendCode, verifyCode, sendResetLink, refreshProfile]);
+  }), [session, profile, role, loading, blocked, signUp, signIn, signOut, sendCode, resendCode, verifyCode, sendResetLink, sendPhoneCode, resendPhoneCode, verifyPhoneCode, refreshProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -10,6 +10,7 @@ import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
 import VerifyEmail from './pages/auth/VerifyEmail';
 import AuthCallback from './pages/auth/AuthCallback';
+import PhoneOtp from './pages/auth/PhoneOtp';
 
 import PassengerLayout from './pages/passenger/PassengerLayout';
 import PassengerDashboard from './pages/passenger/Dashboard';
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify" element={<VerifyEmail />} />
+        <Route path="/phone-otp" element={<PhoneOtp />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
 
         {/* passenger */}
