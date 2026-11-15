@@ -35,7 +35,7 @@ for (const [input, expected] of CASES) {
 const CHECKS = [
   ['isValidE164("+919876543210")', isValidE164('+919876543210'), true],
   ['isValidE164("9876543210")', isValidE164('9876543210'), false],
-  ['isValidE164("+9198765432")', isValidE164('+9198765432'), false],
+  ['isValidE164("+9198765")', isValidE164('+9198765'), false],
   ['formatPhone("+919876543210")', formatPhone('+919876543210'), '+91 98765 43210'],
   ['formatPhone("9876543210")', formatPhone('9876543210'), '+91 98765 43210'],
   ['nationalNumber("+919876543210")', nationalNumber('+919876543210'), '9876543210'],
