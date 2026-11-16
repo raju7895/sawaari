@@ -93,9 +93,14 @@ function siteEnv() {
   return [
     { key: 'VITE_SUPABASE_URL', value: env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '' },
     { key: 'VITE_SUPABASE_ANON_KEY', value: env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '' },
-    /* the shared demo account — optional, and never in the repository */
-    { key: 'VITE_DEMO_ACCOUNT_EMAIL', value: env.VITE_DEMO_ACCOUNT_EMAIL || process.env.VITE_DEMO_ACCOUNT_EMAIL || '' },
-    { key: 'VITE_DEMO_ACCOUNT_PASSWORD', value: env.VITE_DEMO_ACCOUNT_PASSWORD || process.env.VITE_DEMO_ACCOUNT_PASSWORD || '' },
+    /* the demo accounts — the addresses are public, the passwords live in
+       the Render environment and never in the repository */
+    { key: 'VITE_DEMO_PASSENGER_EMAIL', value: env.VITE_DEMO_PASSENGER_EMAIL || process.env.VITE_DEMO_PASSENGER_EMAIL || '' },
+    { key: 'VITE_DEMO_PASSENGER_PASSWORD', value: env.VITE_DEMO_PASSENGER_PASSWORD || process.env.VITE_DEMO_PASSENGER_PASSWORD || '' },
+    { key: 'VITE_DEMO_DRIVER_EMAIL', value: env.VITE_DEMO_DRIVER_EMAIL || process.env.VITE_DEMO_DRIVER_EMAIL || '' },
+    { key: 'VITE_DEMO_DRIVER_PASSWORD', value: env.VITE_DEMO_DRIVER_PASSWORD || process.env.VITE_DEMO_DRIVER_PASSWORD || '' },
+    /* the guest button — it needs "Anonymous sign-ins" in Supabase */
+    { key: 'VITE_ENABLE_GUEST', value: env.VITE_ENABLE_GUEST || process.env.VITE_ENABLE_GUEST || 'true' },
   ];
 }
 
@@ -114,7 +119,10 @@ async function main() {
   }
   let site = services.find((s) => s.name === NAME && s.type === 'static_site');
   const wanted = siteEnv();
-  const missing = wanted.filter((v) => !v.value);
+  /* only the two Supabase variables are required; the demo accounts and the
+     guest button are optional (an empty value simply leaves them out) */
+  const required = wanted.filter((v) => v.key.startsWith('VITE_SUPABASE_'));
+  const missing = required.filter((v) => !v.value);
   if (missing.length) {
     log(`\n✖ ${missing.map((m) => m.key).join(', ')} ${missing.length > 1 ? 'are' : 'is'} not set.`);
     log('  Put them in web/.env (copy web/.env.example) or in the environment, and run again.');
@@ -198,7 +206,16 @@ async function main() {
 
   await render(`/services/${site.id}/env-vars`, {
     method: 'PUT',
-    body: [...currentVars.filter((c) => !wanted.some((v) => v.key === c.key)), ...wanted].map((c) => ({ key: c.key, value: c.value })),
+    /* An empty value means "leave it as it is" — the owner sets the demo
+       passwords in the dashboard, and a deploy must never wipe them. */
+    body: currentVars
+      .filter((c) => !wanted.some((v) => v.key === c.key))
+      .concat(wanted.map((v) => {
+        const current = currentVars.find((c) => c.key === v.key);
+        return { key: v.key, value: v.value || (current ? current.value : '') };
+      }))
+      .filter((c) => c.value)
+      .map((c) => ({ key: c.key, value: c.value })),
   });
   log('  environment variables saved');
 

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogIn, Loader2, KeyRound, Mail, MessageSquare, UserRound } from 'lucide-react';
+import { LogIn, Loader2, KeyRound, Mail, MessageSquare, UserRound, CarTaxiFront } from 'lucide-react';
 import { useAuth, homeFor } from '../../context/AuthContext';
 import { formatPhone, toE164 } from '../../lib/phone';
-import { PHONE_OTP_ENABLED, EMAIL_OTP_ENABLED, GUEST_LOGIN_ENABLED, DEMO_EMAIL, DEMO_PASSWORD } from '../../lib/flags';
+import { PHONE_OTP_ENABLED, EMAIL_OTP_ENABLED } from '../../lib/flags';
+import { demoLogin, guestLogin, demoAccountsReady, guestLoginEnabled } from '../../lib/quickLogin';
 import LogoMark from '../../components/LogoMark';
 import { ErrorNote, Notice } from '../../components/ui';
 
@@ -16,7 +17,7 @@ const METHODS = [
 ];
 
 export default function Login() {
-  const { signIn, sendCode, sendPhoneCode, signInAsGuest } = useAuth();
+  const { signIn, sendCode, sendPhoneCode, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [method, setMethod] = useState('password');
@@ -66,40 +67,27 @@ export default function Login() {
     }
   };
 
-  /* the shared demo account — the address and the password come from the
-     build environment, never from the source */
-  const useDemo = async () => {
-    if (!DEMO_EMAIL) {
-      setError('The demo account is not set up for this site.');
-      return;
-    }
+  /* the shared demo accounts — the addresses and the passwords come from
+     the build environment, never from the source */
+  const useDemo = async (role) => {
     setBusy(true); setError(''); setOk('');
     try {
-      if (DEMO_PASSWORD) {
-        const profile = await signIn(DEMO_EMAIL, DEMO_PASSWORD);
-        navigate(homeFor(profile?.role), { replace: true });
-        return;
-      }
-      /* no password in the build: fill it in and let the visitor press
-         "Sign in" */
-      setForm({ ...form, email: DEMO_EMAIL });
-      setOk('The demo address is filled in. Type the demo password and press Sign in.');
+      await demoLogin(role);
+      const profile = await refreshProfile();
+      navigate(homeFor(profile?.role), { replace: true });
     } catch (err) {
-      /* the demo account is created with supabase/guest-login.sql */
-      setError(
-        err.code === 'invalid_credentials'
-          ? 'The demo account is not set up on this site yet.'
-          : err.message,
-      );
+      setError(err.message);
     } finally {
       setBusy(false);
     }
   };
+
   /* a guest account: no address, no password, just a way to look around */
   const asGuest = async () => {
     setBusy(true); setError(''); setOk('');
     try {
-      const profile = await signInAsGuest();
+      await guestLogin();
+      const profile = await refreshProfile();
       navigate(homeFor(profile?.role), { replace: true });
     } catch (err) {
       setError(err.message);
@@ -241,32 +229,43 @@ export default function Login() {
           </div>
 
           {/* the ways in that need no account */}
-          {(GUEST_LOGIN_ENABLED || DEMO_EMAIL) ? (
+          {(demoAccountsReady() || guestLoginEnabled()) ? (
             <div className="space-y-2 border-t border-slate-200 pt-4 dark:border-slate-800">
               <p className="text-center text-xs text-slate-400">
                 or look around first
               </p>
-              <div className="flex gap-2">
-                {GUEST_LOGIN_ENABLED ? (
+              <div className="flex flex-wrap gap-2">
+                {demoAccountsReady() ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn-secondary flex-1 py-2 text-xs"
+                      disabled={busy}
+                      onClick={() => useDemo('rider')}
+                    >
+                      <UserRound className="h-4 w-4" />
+                      Demo Passenger
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary flex-1 py-2 text-xs"
+                      disabled={busy}
+                      onClick={() => useDemo('driver')}
+                    >
+                      <CarTaxiFront className="h-4 w-4" />
+                      Demo Driver
+                    </button>
+                  </>
+                ) : null}
+                {guestLoginEnabled() ? (
                   <button
                     type="button"
-                    className="btn-secondary flex-1 py-2 text-xs"
+                    className="btn-secondary w-full py-2 text-xs"
                     disabled={busy}
                     onClick={asGuest}
                   >
                     {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRound className="h-4 w-4" />}
-                    Try as Guest
-                  </button>
-                ) : null}
-                {DEMO_EMAIL ? (
-                  <button
-                    type="button"
-                    className="btn-secondary flex-1 py-2 text-xs"
-                    disabled={busy}
-                    onClick={useDemo}
-                  >
-                    <KeyRound className="h-4 w-4" />
-                    Use the demo account
+                    Continue as Guest
                   </button>
                 ) : null}
               </div>

@@ -22,24 +22,3 @@ export const PHONE_OTP_ENABLED = flag('VITE_ENABLE_PHONE_OTP');
 
 /** Sign in with a 6-digit code that arrives by e-mail. */
 export const EMAIL_OTP_ENABLED = flag('VITE_ENABLE_EMAIL_OTP');
-
-/**
- * Sign in without an account ("Try as Guest").
- *
- * It needs "Anonymous sign-ins" to be switched on in the Supabase
- * dashboard (Authentication → Sign In / Providers → Anonymous sign-ins).
- * A guest can look around and book a ride; the account cannot be reached
- * again, because there is no address to sign in with.
- */
-export const GUEST_LOGIN_ENABLED = flag('VITE_ENABLE_GUEST_LOGIN') !== 'false';
-
-/**
- * The shared demo account.
- *
- * The address is public by design — it is the point of a demo account.
- * The password is not written in the code: it comes from the build
- * environment, and the account itself is created in the Supabase
- * dashboard (or with supabase/guest-login.sql).
- */
-export const DEMO_EMAIL = import.meta.env.VITE_DEMO_ACCOUNT_EMAIL || '';
-export const DEMO_PASSWORD = import.meta.env.VITE_DEMO_ACCOUNT_PASSWORD || '';

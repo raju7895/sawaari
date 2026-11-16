@@ -1,13 +1,14 @@
 import { useRef, useState } from 'react';
-import { Loader2, Upload } from 'lucide-react';
+import { Loader2, Upload, ShieldCheck } from 'lucide-react';
 import { supabase, friendlyError } from '../../lib/supabase';
 import { updateProfile } from '../../lib/api';
 import { uploadFile, publicUrl } from '../../lib/storage';
 import { useAuth } from '../../context/AuthContext';
+import { upgradeGuest } from '../../lib/quickLogin';
 import { Card, Field, ErrorNote, Notice, Loading } from '../../components/ui';
 
 export default function Profile() {
-  const { profile, refreshProfile } = useAuth();
+  const { profile, refreshProfile, user } = useAuth();
   const fileRef = useRef(null);
   const [form, setForm] = useState({
     fullName: profile?.fullName || '',
@@ -17,6 +18,12 @@ export default function Profile() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
+  const [guest, setGuest] = useState({ email: '', password: '', confirm: '' });
+
+  /* a demo account is shared — its password must not be changed, or the
+     next visitor cannot get in */
+  const isDemo = String(profile?.email || '').startsWith('demo.');
+  const isGuest = !profile?.email;
 
   if (!profile) return <Loading label="Loading your profile…" />;
 
@@ -61,6 +68,27 @@ export default function Profile() {
     } catch (err) {
       setError(err.message);
     } finally { setBusy(false); }
+  };
+
+  /* a guest becomes a real account — the same user id, so the rides that
+     were booked are kept */
+  const saveGuest = async (e) => {
+    e.preventDefault();
+    if (guest.password !== guest.confirm) {
+      setError('The two passwords do not match.');
+      return;
+    }
+    setBusy(true); setError(''); setOk('');
+    try {
+      await upgradeGuest(guest.email.trim().toLowerCase(), guest.password);
+      setGuest({ email: '', password: '', confirm: '' });
+      await refreshProfile();
+      setOk('Your account is ready — sign in with your e-mail address and password from now on.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -118,33 +146,88 @@ export default function Profile() {
         </form>
       </Card>
 
-      <Card title="Change your password">
-        <form onSubmit={changePassword} className="space-y-3">
-          <Field label="New password">
-            <input
-              className="input"
-              type="password"
-              autoComplete="new-password"
-              value={passwords.password}
-              onChange={(e) => setPasswords({ ...passwords, password: e.target.value })}
-              required
-              minLength={8}
-            />
-          </Field>
-          <Field label="Repeat the new password">
-            <input
-              className="input"
-              type="password"
-              autoComplete="new-password"
-              value={passwords.confirm}
-              onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
-              required
-              minLength={8}
-            />
-          </Field>
-          <button className="btn-primary" disabled={busy}>Change the password</button>
-        </form>
-      </Card>
+      {isGuest ? (
+        <Card title="Make this account yours">
+          <form onSubmit={saveGuest} className="space-y-3">
+            <p className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+              You are using the app as a guest. Add an e-mail address and a password
+              and the rides you booked stay with this account.
+            </p>
+            <Field label="E-mail address">
+              <input
+                className="input"
+                type="email"
+                autoComplete="email"
+                value={guest.email}
+                onChange={(e) => setGuest({ ...guest, email: e.target.value })}
+                required
+              />
+            </Field>
+            <Field label="Password" hint="At least 8 characters.">
+              <input
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                value={guest.password}
+                onChange={(e) => setGuest({ ...guest, password: e.target.value })}
+                required
+                minLength={8}
+              />
+            </Field>
+            <Field label="Repeat the password">
+              <input
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                value={guest.confirm}
+                onChange={(e) => setGuest({ ...guest, confirm: e.target.value })}
+                required
+                minLength={8}
+              />
+            </Field>
+            <button className="btn-primary" disabled={busy}>Save my account</button>
+          </form>
+        </Card>
+      ) : null}
+
+      {isDemo ? (
+        <Card title="Demo account">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            This is a shared demo account. Its password cannot be changed here —
+            if it stops working, an administrator can reset it under
+            Authentication → Users.
+          </p>
+        </Card>
+      ) : (
+        <Card title="Change your password">
+          <form onSubmit={changePassword} className="space-y-3">
+            <Field label="New password">
+              <input
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                value={passwords.password}
+                onChange={(e) => setPasswords({ ...passwords, password: e.target.value })}
+                required
+                minLength={8}
+              />
+            </Field>
+            <Field label="Repeat the new password">
+              <input
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                value={passwords.confirm}
+                onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+                required
+                minLength={8}
+              />
+            </Field>
+            <button className="btn-primary" disabled={busy}>Change the password</button>
+          </form>
+        </Card>
+      )}
     </div>
   );
 }

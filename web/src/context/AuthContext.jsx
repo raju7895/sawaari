@@ -286,7 +286,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   const refreshProfile = useCallback(async () => {
-    const row = await loadProfile(session?.user ?? null);
+    /* right after a sign-in the session is already in the local store, even
+       if the context has not been told about it yet — use it, so a screen
+       can ask for the profile straight away */
+    let user = session?.user ?? null;
+    if (!user) {
+      const { data } = await supabase.auth.getSession();
+      user = data?.session?.user ?? null;
+    }
+    const row = await loadProfile(user);
     return row;
   }, [loadProfile, session]);
 
