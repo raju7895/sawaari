@@ -10,6 +10,8 @@
 delete from auth.users
  where email in (
    'qa.rider@sawaari-demo.co',
+   'final.check@sawaari-demo.co',
+   'cooldown.check@sawaari-demo.co',
    'e2e.rider@sawaari-demo.co',
    'e2e.rider2@sawaari-demo.co',
    'e2e.rider3@sawaari-demo.co',
