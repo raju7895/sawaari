@@ -15,16 +15,31 @@ export default function TrackPublic() {
 
   useEffect(() => {
     let alive = true;
+    let timer = null;
+
     const load = async () => {
       const { data, error: err } = await supabase.rpc('get_ride_by_share_token', { p_token: token });
       if (!alive) return;
-      if (err) setError(err.message);
-      else if (!data) setError('That link is not valid any more.');
-      else { setTrip(data); setError(''); }
+      if (err) {
+        /* A link that cannot be read is a link that is not valid any more —
+           the visitor does not need the database's wording. The polling
+           stops as well: there is nothing to wait for. */
+        setError('That trip link is not valid any more. Ask the person who shared it for a new link.');
+        if (timer) { clearInterval(timer); timer = null; }
+        return;
+      }
+      if (!data) {
+        setError('That trip link is not valid any more.');
+        if (timer) { clearInterval(timer); timer = null; }
+        return;
+      }
+      setTrip(data);
+      setError('');
     };
+
     load();
-    const timer = setInterval(load, 8000);
-    return () => { alive = false; clearInterval(timer); };
+    timer = setInterval(load, 8000);
+    return () => { alive = false; if (timer) clearInterval(timer); };
   }, [token]);
 
   if (error) {

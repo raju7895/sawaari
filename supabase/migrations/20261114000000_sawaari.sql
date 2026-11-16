@@ -1254,3 +1254,16 @@ end $$;
 
 revoke execute on function public.admin_set_user_password(uuid, text) from public, anon;
 grant execute on function public.admin_set_user_password(uuid, text) to authenticated, service_role;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 15.  THE PUBLIC TRIP-SHARE LINK
+-- ═══════════════════════════════════════════════════════════════════════════
+-- The same statements live in supabase/share-link-fix.sql.
+-- ═══════════════════════════════════════════════════════════════════════════
+grant execute on function public.get_ride_by_share_token(text)
+  to anon, authenticated, service_role;
+
+-- check it:
+--   select has_function_privilege('anon', 'public.get_ride_by_share_token(text)', 'execute');
+--   → t means the public trip link works again
+

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Loader2, Phone, Star } from 'lucide-react';
+import { Loader2, Phone, Star, Share2 } from 'lucide-react';
 import { getRide, rateRide, updateRideStatus } from '../../lib/api';
 import { subscribeToRide } from '../../lib/realtime';
 import { Card, Loading, ErrorNote, StatusBadge, Notice, Field } from '../../components/ui';
@@ -24,6 +24,21 @@ export default function RideTracking() {
   const [comment, setComment] = useState('');
   const [rated, setRated] = useState(false);
   const [info, setInfo] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  /* the link that lets somebody else follow this ride without an account */
+  const shareUrl = ride?.shareToken ? `${window.location.origin}/track/${ride.shareToken}` : '';
+
+  const copyShare = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setInfo(shareUrl);
+    }
+  };
 
   const load = async () => {
     try {
@@ -118,6 +133,23 @@ export default function RideTracking() {
           ) : null}
         </div>
       </Card>
+
+      {shareUrl ? (
+        <Card title="Follow this ride">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Send this link to somebody who should know where the ride is. They do not
+            need an account.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input className="input flex-1" readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
+            <button type="button" className="btn-secondary" onClick={copyShare}>
+              <Share2 className="h-4 w-4" /> {copied ? 'Copied' : 'Copy'}
+            </button>
+            <a className="btn-ghost" href={shareUrl} target="_blank" rel="noreferrer">Open</a>
+          </div>
+          {copied ? <Notice tone="ok">The link is on your clipboard.</Notice> : null}
+        </Card>
+      ) : null}
 
       {['requested', 'accepted'].includes(ride.status) ? (
         <button className="btn-secondary w-full" onClick={cancel} disabled={busy}>
