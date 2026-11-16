@@ -78,9 +78,16 @@ function siteEnv() {
   const env = {};
   try {
     const text = fs.readFileSync(path.join(ROOT, 'web', '.env'), 'utf8');
-    for (const line of text.split('\n')) {
-      const m = line.match(/^(VITE_[A-Z_]+)=(.*)$/);
-      if (m) env[m[1]] = m[2].trim();
+    for (const line of text.split(/\r?\n/)) {
+      /* the key may carry a \r from a Windows file, and the value may be
+         quoted - both are handled here */
+      const m = line.trim().match(/^(VITE_[A-Za-z0-9_]+)\s*=\s*(.*)$/);
+      if (!m) continue;
+      let value = m[2].trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      env[m[1]] = value;
     }
   } catch { /* no local .env — the values come from the environment */ }
   return [

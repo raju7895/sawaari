@@ -123,6 +123,9 @@ export function AuthProvider({ children }) {
     const wait = waitMessage(key);
     if (wait) throw new AuthError(wait, { code: 'cooldown' });
 
+    /* the window starts when the request goes out, not when it succeeds:
+       the server counts the attempt either way */
+    markRequested(key);
     const { error } = await supabase.auth.signInWithOtp({
       email: address,
       options: {
@@ -131,7 +134,6 @@ export function AuthProvider({ children }) {
       },
     });
     if (error) throw new AuthError(friendlyError(error, 'Could not send the code.'), error);
-    markRequested(key);
     return true;
   }, []);
 
@@ -148,13 +150,13 @@ export function AuthProvider({ children }) {
     const wait = waitMessage(key);
     if (wait) throw new AuthError(wait, { code: 'cooldown' });
 
+    markRequested(key);
     const { error } = await supabase.auth.resend({
       type,
       email: address,
       options: { emailRedirectTo: callbackUrl() },
     });
     if (error) throw new AuthError(friendlyError(error, 'Could not send the code.'), error);
-    markRequested(key);
     return true;
   }, []);
 
@@ -179,12 +181,12 @@ export function AuthProvider({ children }) {
     const wait = waitMessage(key);
     if (wait) throw new AuthError(wait, { code: 'cooldown' });
 
+    markRequested(key);
     const { error } = await supabase.auth.resetPasswordForEmail(
       address,
       { redirectTo: `${window.location.origin}/reset-password` },
     );
     if (error) throw new AuthError(friendlyError(error, 'Could not send the reset e-mail.'), error);
-    markRequested(key);
     return true;
   }, []);
 
@@ -207,12 +209,12 @@ export function AuthProvider({ children }) {
     const wait = waitMessage(key);
     if (wait) throw new AuthError(wait, { code: 'cooldown' });
 
+    markRequested(key);
     const { error } = await supabase.auth.signInWithOtp({
       phone: number,
       options: { shouldCreateUser, data, channel: 'sms' },
     });
     if (error) throw new AuthError(friendlyError(error, 'We could not send the code by SMS.'), error);
-    markRequested(key);
     return number;
   }, []);
 
@@ -223,9 +225,9 @@ export function AuthProvider({ children }) {
     const wait = waitMessage(key);
     if (wait) throw new AuthError(wait, { code: 'cooldown' });
 
+    markRequested(key);
     const { error } = await supabase.auth.resend({ type: 'sms', phone: number });
     if (error) throw new AuthError(friendlyError(error, 'We could not send the code by SMS.'), error);
-    markRequested(key);
     return number;
   }, []);
 
