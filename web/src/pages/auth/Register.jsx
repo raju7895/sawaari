@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { UserPlus, Loader2, ShieldCheck, CarTaxiFront, User } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, homeFor } from '../../context/AuthContext';
 import { googleProviderEnabled } from '../../lib/providers';
 import GoogleButton from '../../components/GoogleButton';
 import LogoMark from '../../components/LogoMark';
@@ -14,6 +14,7 @@ export default function Register() {
   const [form, setForm] = useState({ fullName: '', phone: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [exists, setExists] = useState(false);
   const [googleOn, setGoogleOn] = useState(false);
 
   /* the Google button only shows once the provider is really on */
@@ -34,14 +35,21 @@ export default function Register() {
     e.preventDefault();
     setBusy(true);
     setError('');
+    setExists(false);
     try {
       const res = await signUp({ ...form, role });
+      if (res.alreadyRegistered) {
+        /* the address is already confirmed — there is no code to wait for */
+        setError('You already have an account with that e-mail address. Sign in instead.');
+        setExists(true);
+        return;
+      }
       if (res.needsEmailConfirmation) {
         /* the address has to be confirmed first — the code is on its way */
         navigate(`/verify?mode=signup&email=${encodeURIComponent(res.email)}`, { replace: true });
         return;
       }
-      navigate(role === 'driver' ? '/driver/profile' : '/passenger', { replace: true });
+      navigate(homeFor(res.role), { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -92,6 +100,15 @@ export default function Register() {
                 </button>
               ))}
             </div>
+
+            {exists ? (
+              <div className="rounded-xl bg-brand-50 p-3 text-sm dark:bg-brand-900/30">
+                <p className="text-brand-800 dark:text-brand-200">
+                  You already have an account with that e-mail address.
+                </p>
+                <Link to="/login" className="link font-semibold">Sign in instead →</Link>
+              </div>
+            ) : null}
 
             <div>
               <label className="label" htmlFor="fullName">Full name</label>
@@ -170,7 +187,6 @@ export default function Register() {
               Already registered? <Link to="/login" className="link font-semibold">Sign in</Link>
             </p>
           </form>
-
         <p className="mt-4 text-center text-xs text-slate-400">
           <Link to="/" className="link">← Back to home</Link>
         </p>

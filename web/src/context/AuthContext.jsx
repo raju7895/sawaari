@@ -104,11 +104,17 @@ export function AuthProvider({ children }) {
     /* the Auth service hands out a session right away when the address is
        confirmed — read the profile now so the screen can go straight to
        the right home instead of waiting for it */
-    if (data.session) await loadProfile(data.user);
+    const row = data.session ? await loadProfile(data.user) : null;
+    /* No session, but the address is already confirmed → the account was
+       there before. GoTrue answers 200 with the existing user, so the
+       screen can say "you already have an account" instead of sending
+       somebody to wait for a code that will never arrive. */
+    const alreadyRegistered = Boolean(!data.session && data.user?.email_confirmed_at);
     return {
-      needsEmailConfirmation: !data.session,
+      needsEmailConfirmation: !data.session && !alreadyRegistered,
+      alreadyRegistered,
       email: String(email).trim().toLowerCase(),
-      role: role === 'driver' ? 'driver' : 'rider',
+      role: row?.role || (role === 'driver' ? 'driver' : 'rider'),
     };
   }, [loadProfile]);
 
