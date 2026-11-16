@@ -21,9 +21,14 @@ const DEMO = {
   },
 };
 
-/** True when the demo accounts are set up for this build. */
+/**
+ * True when the demo accounts are meant to be offered on this build.
+ * The buttons are shown as soon as an address is known — if a password is
+ * missing the button says exactly that, which is more useful than a
+ * button that is simply not there.
+ */
 export function demoAccountsReady() {
-  return Boolean(DEMO.rider.email && DEMO.rider.password && DEMO.driver.email && DEMO.driver.password);
+  return Boolean(DEMO.rider.email || DEMO.driver.email);
 }
 
 /** True when the guest button may be shown. */
@@ -38,7 +43,11 @@ export function guestLoginEnabled() {
 export async function demoLogin(role = 'rider') {
   const creds = DEMO[role];
   if (!creds?.email || !creds?.password) {
-    throw new Error('The demo accounts are not configured for this site yet.');
+    const missing = !creds?.email ? 'address' : 'password';
+    throw new Error(
+      `The demo ${role} account is not configured on this site yet (the ${missing} is missing). `
+      + 'Ask an administrator to add it to the build environment.',
+    );
   }
 
   const { data, error } = await supabase.auth.signInWithPassword(creds);
