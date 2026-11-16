@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { UserPlus, Loader2, ShieldCheck, CarTaxiFront, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { googleProviderEnabled } from '../../lib/providers';
 import GoogleButton from '../../components/GoogleButton';
 import LogoMark from '../../components/LogoMark';
 import { ErrorNote } from '../../components/ui';
@@ -13,6 +14,10 @@ export default function Register() {
   const [form, setForm] = useState({ fullName: '', phone: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [googleOn, setGoogleOn] = useState(false);
+
+  /* the Google button only shows once the provider is really on */
+  useEffect(() => { googleProviderEnabled().then(setGoogleOn); }, []);
 
   /* Google creates the account by itself — the trigger gives it a profile */
   const withGoogle = async () => {
@@ -57,13 +62,15 @@ export default function Register() {
           <ErrorNote message={error} />
 
           {/* the quickest way in — Google creates the account itself */}
-          <GoogleButton onClick={withGoogle} busy={busy} />
+          {googleOn ? <GoogleButton onClick={withGoogle} busy={busy} /> : null}
 
-          <div className="flex items-center gap-3">
-            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-            <span className="text-xs text-slate-400">or with your e-mail address</span>
-            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-          </div>
+          {googleOn ? (
+            <div className="flex items-center gap-3">
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+              <span className="text-xs text-slate-400">or with your e-mail address</span>
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            </div>
+          ) : null}
 
             {/* role */}
             <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">

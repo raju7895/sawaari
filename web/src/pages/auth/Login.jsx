@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { LogIn, Loader2, KeyRound, Mail, MessageSquare, UserRound, CarTaxiFront } from 'lucide-react';
 import { useAuth, homeFor } from '../../context/AuthContext';
 import { formatPhone, toE164 } from '../../lib/phone';
 import { PHONE_OTP_ENABLED, EMAIL_OTP_ENABLED } from '../../lib/flags';
 import { demoLogin, guestLogin, demoAccountsReady, guestLoginEnabled } from '../../lib/quickLogin';
+import { googleProviderEnabled } from '../../lib/providers';
 import GoogleButton from '../../components/GoogleButton';
 import LogoMark from '../../components/LogoMark';
 import { ErrorNote, Notice } from '../../components/ui';
@@ -26,6 +27,10 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
+  const [googleOn, setGoogleOn] = useState(false);
+
+  /* the Google button only shows once the provider is really on */
+  useEffect(() => { googleProviderEnabled().then(setGoogleOn); }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -131,13 +136,15 @@ export default function Login() {
           {ok ? <Notice tone="ok">{ok}</Notice> : null}
 
           {/* the quickest way in */}
-          <GoogleButton onClick={withGoogle} busy={busy} />
+          {googleOn ? <GoogleButton onClick={withGoogle} busy={busy} /> : null}
 
-          <div className="flex items-center gap-3">
-            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-            <span className="text-xs text-slate-400">or with your e-mail address</span>
-            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-          </div>
+          {googleOn ? (
+            <div className="flex items-center gap-3">
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+              <span className="text-xs text-slate-400">or with your e-mail address</span>
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            </div>
+          ) : null}
 
           {/* the ways in — the e-mail one always works, the others only
               when their provider is set up */}
