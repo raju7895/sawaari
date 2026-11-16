@@ -105,17 +105,30 @@ export function AuthProvider({ children }) {
        confirmed — read the profile now so the screen can go straight to
        the right home instead of waiting for it */
     const row = data.session ? await loadProfile(data.user) : null;
-    /* No session, but the address is already confirmed → the account was
-       there before. GoTrue answers 200 with the existing user, so the
-       screen can say "you already have an account" instead of sending
-       somebody to wait for a code that will never arrive. */
-    const alreadyRegistered = Boolean(!data.session && data.user?.email_confirmed_at);
-    return {
-      needsEmailConfirmation: !data.session && !alreadyRegistered,
-      alreadyRegistered,
+    const base = {
+      needsEmailConfirmation: false,
+      alreadyRegistered: false,
       email: String(email).trim().toLowerCase(),
       role: row?.role || (role === 'driver' ? 'driver' : 'rider'),
     };
+    if (data.session) return base;
+
+    /* No session. Two reasons are possible and GoTrue does not say which:
+     * the address still has to be confirmed, or the account already exists
+     * (GoTrue answers 200 with the existing user and no error).
+     * A sign-in attempt tells the two apart — and if the password is the
+     * right one, the person is simply signed in. */
+    const address = String(email).trim().toLowerCase();
+    const probe = await supabase.auth.signInWithPassword({ email: address, password });
+    if (!probe.error) {
+      const known = await loadProfile(probe.data.user);
+      return { ...base, role: known?.role || base.role, signedIn: true };
+    }
+    if (probe.error.code === 'email_not_confirmed') {
+      return { ...base, needsEmailConfirmation: true };
+    }
+    /* the account is there, but the password is not its password */
+    return { ...base, alreadyRegistered: true };
   }, [loadProfile]);
 
   /**

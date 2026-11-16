@@ -39,9 +39,14 @@ export default function Register() {
     try {
       const res = await signUp({ ...form, role });
       if (res.alreadyRegistered) {
-        /* the address is already confirmed — there is no code to wait for */
-        setError('You already have an account with that e-mail address. Sign in instead.');
+        /* the address is already an account — there is no code to wait for */
+        setError('You already have an account with that e-mail address. Sign in with your password.');
         setExists(true);
+        return;
+      }
+      if (res.signedIn) {
+        /* the password was the right one after all — they are in */
+        navigate(homeFor(res.role), { replace: true });
         return;
       }
       if (res.needsEmailConfirmation) {
