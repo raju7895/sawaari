@@ -21,6 +21,9 @@ const API = 'https://api.render.com/v1';
 const NAME = 'sawaari-web';
 const REPO = 'https://github.com/raju7895/sawaari';
 
+/* Variables of an earlier setup that the app does not read any more. */
+const DEPRECATED = ['VITE_DEMO_ACCOUNT_EMAIL', 'VITE_DEMO_ACCOUNT_PASSWORD'];
+
 const log = (...a) => console.log(...a);
 
 async function render(pathname, { method = 'GET', body } = {}) {
@@ -207,9 +210,12 @@ async function main() {
   await render(`/services/${site.id}/env-vars`, {
     method: 'PUT',
     /* An empty value means "leave it as it is" — the owner sets the demo
-       passwords in the dashboard, and a deploy must never wipe them. */
+       passwords in the dashboard, and a deploy must never wipe them.
+       The variables in DEPRECATED are leftovers of an earlier setup and
+       are not read by the app any more. */
     body: currentVars
       .filter((c) => !wanted.some((v) => v.key === c.key))
+      .filter((c) => !DEPRECATED.includes(c.key))
       .concat(wanted.map((v) => {
         const current = currentVars.find((c) => c.key === v.key);
         return { key: v.key, value: v.value || (current ? current.value : '') };
