@@ -63,3 +63,7 @@ desktop.ini
 
 # editor / agent settings
 .cursor/
+
+# the local helper that prints login codes (it holds the secret key)
+.env.local
+**/.env.local
