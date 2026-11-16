@@ -86,6 +86,9 @@ function siteEnv() {
   return [
     { key: 'VITE_SUPABASE_URL', value: env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '' },
     { key: 'VITE_SUPABASE_ANON_KEY', value: env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '' },
+    /* the shared demo account — optional, and never in the repository */
+    { key: 'VITE_DEMO_ACCOUNT_EMAIL', value: env.VITE_DEMO_ACCOUNT_EMAIL || process.env.VITE_DEMO_ACCOUNT_EMAIL || '' },
+    { key: 'VITE_DEMO_ACCOUNT_PASSWORD', value: env.VITE_DEMO_ACCOUNT_PASSWORD || process.env.VITE_DEMO_ACCOUNT_PASSWORD || '' },
   ];
 }
 

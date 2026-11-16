@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { supabase, friendlyError, AuthError } from '../lib/supabase';
 import { myProfile } from '../lib/api';
 import { toE164, isValidE164 } from '../lib/phone';
+import { cooldownKey, markRequested, waitMessage } from '../lib/cooldown';
 
 /** Where the confirmation link goes when the visitor clicks it. */
 const CALLBACK_PATH = '/auth/callback';
@@ -117,14 +118,20 @@ export function AuthProvider({ children }) {
    *   • sign-in  → "Magic Link"     (the code that signs somebody in)
    */
   const sendCode = useCallback(async (email, { shouldCreateUser = false } = {}) => {
+    const address = String(email).trim().toLowerCase();
+    const key = cooldownKey('email', address);
+    const wait = waitMessage(key);
+    if (wait) throw new AuthError(wait, { code: 'cooldown' });
+
     const { error } = await supabase.auth.signInWithOtp({
-      email: String(email).trim().toLowerCase(),
+      email: address,
       options: {
         shouldCreateUser,
         emailRedirectTo: callbackUrl(),
       },
     });
     if (error) throw new AuthError(friendlyError(error, 'Could not send the code.'), error);
+    markRequested(key);
     return true;
   }, []);
 
@@ -136,12 +143,18 @@ export function AuthProvider({ children }) {
    * somebody in is sent again with sendCode().
    */
   const resendCode = useCallback(async (email, type = 'signup') => {
+    const address = String(email).trim().toLowerCase();
+    const key = cooldownKey('email', address);
+    const wait = waitMessage(key);
+    if (wait) throw new AuthError(wait, { code: 'cooldown' });
+
     const { error } = await supabase.auth.resend({
       type,
-      email: String(email).trim().toLowerCase(),
+      email: address,
       options: { emailRedirectTo: callbackUrl() },
     });
     if (error) throw new AuthError(friendlyError(error, 'Could not send the code.'), error);
+    markRequested(key);
     return true;
   }, []);
 
@@ -161,11 +174,17 @@ export function AuthProvider({ children }) {
 
   /** The password reset e-mail: a link that opens /reset-password. */
   const sendResetLink = useCallback(async (email) => {
+    const address = String(email).trim().toLowerCase();
+    const key = cooldownKey('reset', address);
+    const wait = waitMessage(key);
+    if (wait) throw new AuthError(wait, { code: 'cooldown' });
+
     const { error } = await supabase.auth.resetPasswordForEmail(
-      String(email).trim().toLowerCase(),
+      address,
       { redirectTo: `${window.location.origin}/reset-password` },
     );
     if (error) throw new AuthError(friendlyError(error, 'Could not send the reset e-mail.'), error);
+    markRequested(key);
     return true;
   }, []);
 
@@ -184,19 +203,29 @@ export function AuthProvider({ children }) {
         { code: 'invalid_phone' },
       );
     }
+    const key = cooldownKey('phone', number);
+    const wait = waitMessage(key);
+    if (wait) throw new AuthError(wait, { code: 'cooldown' });
+
     const { error } = await supabase.auth.signInWithOtp({
       phone: number,
       options: { shouldCreateUser, data, channel: 'sms' },
     });
     if (error) throw new AuthError(friendlyError(error, 'We could not send the code by SMS.'), error);
+    markRequested(key);
     return number;
   }, []);
 
   /** Asks for the SMS code again. */
   const resendPhoneCode = useCallback(async (phone) => {
     const number = toE164(phone);
+    const key = cooldownKey('phone', number);
+    const wait = waitMessage(key);
+    if (wait) throw new AuthError(wait, { code: 'cooldown' });
+
     const { error } = await supabase.auth.resend({ type: 'sms', phone: number });
     if (error) throw new AuthError(friendlyError(error, 'We could not send the code by SMS.'), error);
+    markRequested(key);
     return number;
   }, []);
 
@@ -217,6 +246,32 @@ export function AuthProvider({ children }) {
     /* The role does not live in the token — it lives in public.profiles.
        The profile is handed back so the screen knows where this person
        belongs (the token only ever says "authenticated"). */
+    const row = await loadProfile(data.user);
+    return row;
+  }, [loadProfile]);
+
+  /**
+   * Signs somebody in as a guest.
+   *
+   * The Auth service creates an account without an e-mail address; the
+   * database gives it a profile with the role "guest". A guest can look
+   * around and book a ride, but the account cannot be reached again
+   * (there is no address to sign in with) — it is a way to try the app,
+   * not an account.
+   *
+   * It needs "Anonymous sign-ins" to be switched on in the Supabase
+   * dashboard (Authentication → Sign In / Providers → Anonymous sign-ins).
+   */
+  const signInAsGuest = useCallback(async () => {
+    const { data, error } = await supabase.auth.signInAnonymously({
+      options: { data: { role: 'guest', full_name: 'Guest' } },
+    });
+    if (error) {
+      throw new AuthError(
+        friendlyError(error, 'Guest access is not switched on for this platform yet.'),
+        error,
+      );
+    }
     const row = await loadProfile(data.user);
     return row;
   }, [loadProfile]);
@@ -244,6 +299,7 @@ export function AuthProvider({ children }) {
     blocked,
     signUp,
     signIn,
+    signInAsGuest,
     signOut,
     sendCode,
     resendCode,
@@ -253,7 +309,7 @@ export function AuthProvider({ children }) {
     resendPhoneCode,
     verifyPhoneCode,
     refreshProfile,
-  }), [session, profile, role, loading, blocked, signUp, signIn, signOut, sendCode, resendCode, verifyCode, sendResetLink, sendPhoneCode, resendPhoneCode, verifyPhoneCode, refreshProfile]);
+  }), [session, profile, role, loading, blocked, signUp, signIn, signInAsGuest, signOut, sendCode, resendCode, verifyCode, sendResetLink, sendPhoneCode, resendPhoneCode, verifyPhoneCode, refreshProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

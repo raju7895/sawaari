@@ -80,7 +80,7 @@ export default function App() {
         <Route path="/auth/callback" element={<AuthCallback />} />
 
         {/* passenger */}
-        <Route path="/passenger" element={<Require roles={['rider']}><PassengerLayout /></Require>}>
+        <Route path="/passenger" element={<Require roles={['rider', 'guest']}><PassengerLayout /></Require>}>
           <Route index element={<PassengerDashboard />} />
           <Route path="book" element={<BookRide />} />
           <Route path="ride/:id" element={<RideTracking />} />
