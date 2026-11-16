@@ -239,6 +239,31 @@ export function AuthProvider({ children }) {
     return data;
   }, []);
 
+  /**
+   * Signs in with Google.
+   *
+   * The Auth service sends the visitor to Google and back to
+   * /auth/callback, where the session is picked up and the person lands
+   * on the home of their role (see AuthCallback.jsx).
+   *
+   * It needs the Google provider to be switched on in Supabase
+   * (Authentication → Sign In / Providers → Google) with a client id and
+   * a secret from the Google Cloud console.
+   */
+  const signInWithGoogle = useCallback(async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: callbackUrl() },
+    });
+    if (error) {
+      throw new AuthError(
+        friendlyError(error, 'Google sign-in is not switched on for this platform yet.'),
+        error,
+      );
+    }
+    return true;
+  }, []);
+
   const signIn = useCallback(async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email: String(email).trim().toLowerCase(),
@@ -309,6 +334,7 @@ export function AuthProvider({ children }) {
     blocked,
     signUp,
     signIn,
+    signInWithGoogle,
     signInAsGuest,
     signOut,
     sendCode,
@@ -319,7 +345,7 @@ export function AuthProvider({ children }) {
     resendPhoneCode,
     verifyPhoneCode,
     refreshProfile,
-  }), [session, profile, role, loading, blocked, signUp, signIn, signInAsGuest, signOut, sendCode, resendCode, verifyCode, sendResetLink, sendPhoneCode, resendPhoneCode, verifyPhoneCode, refreshProfile]);
+  }), [session, profile, role, loading, blocked, signUp, signIn, signInWithGoogle, signInAsGuest, signOut, sendCode, resendCode, verifyCode, sendResetLink, sendPhoneCode, resendPhoneCode, verifyPhoneCode, refreshProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

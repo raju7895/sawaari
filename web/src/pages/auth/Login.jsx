@@ -5,6 +5,7 @@ import { useAuth, homeFor } from '../../context/AuthContext';
 import { formatPhone, toE164 } from '../../lib/phone';
 import { PHONE_OTP_ENABLED, EMAIL_OTP_ENABLED } from '../../lib/flags';
 import { demoLogin, guestLogin, demoAccountsReady, guestLoginEnabled } from '../../lib/quickLogin';
+import GoogleButton from '../../components/GoogleButton';
 import LogoMark from '../../components/LogoMark';
 import { ErrorNote, Notice } from '../../components/ui';
 
@@ -17,7 +18,7 @@ const METHODS = [
 ];
 
 export default function Login() {
-  const { signIn, sendCode, sendPhoneCode, refreshProfile } = useAuth();
+  const { signIn, sendCode, sendPhoneCode, refreshProfile, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [method, setMethod] = useState('password');
@@ -82,9 +83,21 @@ export default function Login() {
     }
   };
 
-  /* a guest account: no address, no password, just a way to look around */
-  const asGuest = async () => {
+  /* Google: the Auth service sends the visitor to Google and back to
+     /auth/callback — the page navigates away, so there is nothing to do
+     afterwards */
+  const withGoogle = async () => {
     setBusy(true); setError(''); setOk('');
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  /* a guest account: no address, no password, just a way to look around */
+  const asGuest = async () => {    setBusy(true); setError(''); setOk('');
     try {
       await guestLogin();
       const profile = await refreshProfile();
@@ -116,6 +129,15 @@ export default function Login() {
         <form onSubmit={submit} className="card space-y-4 p-6">
           <ErrorNote message={error} />
           {ok ? <Notice tone="ok">{ok}</Notice> : null}
+
+          {/* the quickest way in */}
+          <GoogleButton onClick={withGoogle} busy={busy} />
+
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            <span className="text-xs text-slate-400">or with your e-mail address</span>
+            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+          </div>
 
           {/* the ways in — the e-mail one always works, the others only
               when their provider is set up */}

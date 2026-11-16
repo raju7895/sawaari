@@ -87,6 +87,8 @@ export function friendlyError(error, fallback = 'Something went wrong. Please tr
     ['weak_password', 'That password is too weak. Use at least 8 characters with a number and a letter.'],
     ['otp_expired', 'That code is not right or has expired. Type it again, or ask for a new one.'],
     ['anonymous_provider_disabled', 'Guest access is not switched on for this platform yet. Ask the owner to turn on Anonymous sign-ins.'],
+    ['provider_not_enabled', 'That sign-in method is not switched on for this platform yet. Ask the owner to turn it on under Authentication → Sign In / Providers.'],
+    ['Provider is not enabled', 'That sign-in method is not switched on for this platform yet. Ask the owner to turn it on under Authentication → Sign In / Providers.'],
     ['signup_disabled', 'Sign-ups are closed at the moment. Please try again later.'],
   ];
   const hitCode = byCode.find(([needle]) => code === needle);

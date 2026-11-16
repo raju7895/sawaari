@@ -29,7 +29,7 @@ export default function AuthCallback() {
     if (loading) return undefined;
     if (user) return undefined;
     const timer = setTimeout(() => {
-      setProblem('This confirmation link is not valid any more. It may have been used already, or it may have expired. Ask for a new code and we will send one.');
+      setProblem('This link is not valid any more. It may have been used already, or it may have expired. Ask for a new code and we will send one — or sign in with Google.');
     }, 2500);
     return () => clearTimeout(timer);
   }, [loading, user]);

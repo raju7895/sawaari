@@ -2,16 +2,28 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { UserPlus, Loader2, ShieldCheck, CarTaxiFront, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import GoogleButton from '../../components/GoogleButton';
 import LogoMark from '../../components/LogoMark';
 import { ErrorNote } from '../../components/ui';
 
 export default function Register() {
-  const { signUp } = useAuth();
+  const { signUp, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [role, setRole] = useState('rider');
   const [form, setForm] = useState({ fullName: '', phone: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  /* Google creates the account by itself — the trigger gives it a profile */
+  const withGoogle = async () => {
+    setBusy(true); setError('');
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -43,6 +55,15 @@ export default function Register() {
 
         <form onSubmit={submit} className="card space-y-4 p-6">
           <ErrorNote message={error} />
+
+          {/* the quickest way in — Google creates the account itself */}
+          <GoogleButton onClick={withGoogle} busy={busy} />
+
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            <span className="text-xs text-slate-400">or with your e-mail address</span>
+            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+          </div>
 
             {/* role */}
             <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
